@@ -74,7 +74,7 @@ get_media_base() {
   printf '/webssd/s/%s/%s' "$tok" "$dev"
 }
 
-# === DOWNLOAD / FALLBACK FILE ===
+# === DOWNLOAD / STREAMING FILE (DENGAN RANGE REQUEST 206) ===
 if [ "$ACTION" = "file" ]; then
   if ! validate_dev "$DEV"; then
     printf "Status: 400 Bad Request\r\n\r\nInvalid device"
@@ -110,7 +110,36 @@ if [ "$ACTION" = "file" ]; then
 
   SIZE=$(ls -ldn "$TARGET" | awk '{print $5}')
   FNAME=$(basename "$TARGET")
+
+  if [ -n "$HTTP_RANGE" ] && [ "$DOWNLOAD" != "1" ]; then
+    RANGE=$(printf '%s' "$HTTP_RANGE" | sed -n 's/^bytes=\([0-9]*-[0-9]*\).*/\1/p')
+    START=$(printf '%s' "$RANGE" | cut -d- -f1)
+    END=$(printf '%s' "$RANGE" | cut -d- -f2)
+    [ -z "$START" ] && START=0
+    [ -z "$END" ] || [ "$END" -ge "$SIZE" ] && END=$((SIZE - 1))
+
+    if [ "$START" -ge "$SIZE" ] || [ "$START" -gt "$END" ]; then
+      printf "Status: 416 Range Not Satisfiable\r\nContent-Range: bytes */%s\r\n\r\n" "$SIZE"
+      exit 0
+    fi
+
+    LEN=$((END - START + 1))
+    printf "Status: 206 Partial Content\r\n"
+    printf "Content-Type: %s\r\n" "$MIME"
+    printf "Accept-Ranges: bytes\r\n"
+    printf "Content-Range: bytes %s-%s/%s\r\n" "$START" "$END" "$SIZE"
+    printf "Content-Length: %s\r\n\r\n" "$LEN"
+
+    if [ "$END" -eq $((SIZE - 1)) ]; then
+      tail -c +$((START + 1)) "$TARGET"
+    else
+      tail -c +$((START + 1)) "$TARGET" | head -c "$LEN"
+    fi
+    exit 0
+  fi
+
   printf "Content-Type: %s\r\n" "$MIME"
+  printf "Accept-Ranges: bytes\r\n"
   printf "Content-Length: %s\r\n" "$SIZE"
   if [ "$DOWNLOAD" = "1" ]; then
     printf 'Content-Disposition: attachment; filename="%s"\r\n' "$FNAME"
