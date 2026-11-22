@@ -48,10 +48,11 @@ Aplikasi web file manager super ringan untuk mengakses dan mengelola Hardisk / S
 Pastikan STB OpenWrt Anda terhubung ke internet, jam/tanggal STB sudah sesuai, dan sudah memiliki paket dasar `blkid` (biasanya sudah termasuk di `block-mount`) serta driver format hardisk yang digunakan (misalnya `ntfs-3g` untuk NTFS atau `kmod-fs-exfat` untuk exFAT).
 
 1. Masuk ke terminal STB OpenWrt melalui **SSH** atau menu **Services → Terminal (TTYD)** di LuCI.
-2. Salin dan jalankan 1 baris perintah berikut:
+2. Salin dan jalankan perintah berikut:
 
 ```sh
-wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh) && sh /tmp/install.sh && rm -f /tmp/install.sh
+H="https://"
+wget -qO /tmp/install.sh "${H}[raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh)" && sh /tmp/install.sh && rm -f /tmp/install.sh
 ```
 
 3. Ikuti 2 langkah konfirmasi yang muncul di terminal:
@@ -81,7 +82,8 @@ wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardis
 Jika Anda ingin menghapus seluruh aplikasi, script auto-mount, domain lokal, dan mengembalikan halaman utama OpenWrt ke LuCI seperti semula, jalankan perintah ini di terminal OpenWrt:
 
 ```sh
-wget -qO /tmp/uninstall.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh) && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
+H="https://"
+wget -qO /tmp/uninstall.sh "${H}[raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh)" && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
 ```
 
 Ketik **`y`** lalu tekan Enter saat diminta konfirmasi.
