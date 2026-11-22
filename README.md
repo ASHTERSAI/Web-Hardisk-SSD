@@ -26,15 +26,26 @@ Aplikasi web file manager super ringan untuk mengakses dan mengelola Hardisk / S
 
 ## 📸 Tampilan Aplikasi
 
-| Layar Kunci PIN | Halaman Depan Hardisk | File Manager & Preview |
-| :---: | :---: | :---: |
-| ![Layar PIN](images/pin.png) | ![Dashboard Hardisk](images/dashboard.png) | ![File Manager](images/filemanager.png) |
+<p align="center">
+  <b>Layar Kunci PIN</b><br>
+  <img src="images/pin.png" alt="Layar PIN" width="280">
+</p>
+
+<p align="center">
+  <b>Halaman Depan Hardisk</b><br>
+  <img src="images/dashboard.png" alt="Dashboard Hardisk" width="750">
+</p>
+
+<p align="center">
+  <b>File Manager & Preview</b><br>
+  <img src="images/filemanager.png" alt="File Manager" width="750">
+</p>
 
 ---
 
 ## 🚀 Cara Instalasi
 
-Pastikan STB OpenWrt Anda terhubung ke internet dan sudah memiliki paket dasar `blkid` (biasanya sudah termasuk di `block-mount`) serta driver format hardisk yang digunakan (misalnya `ntfs-3g` untuk NTFS atau `kmod-fs-exfat` untuk exFAT).
+Pastikan STB OpenWrt Anda terhubung ke internet, jam/tanggal STB sudah sesuai, dan sudah memiliki paket dasar `blkid` (biasanya sudah termasuk di `block-mount`) serta driver format hardisk yang digunakan (misalnya `ntfs-3g` untuk NTFS atau `kmod-fs-exfat` untuk exFAT).
 
 1. Masuk ke terminal STB OpenWrt melalui **SSH** atau menu **Services → Terminal (TTYD)** di LuCI.
 2. Salin dan jalankan 1 baris perintah berikut:
