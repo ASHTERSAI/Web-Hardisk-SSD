@@ -81,7 +81,7 @@ wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardis
 Jika Anda ingin menghapus seluruh aplikasi, script auto-mount, domain lokal, dan mengembalikan halaman utama OpenWrt ke LuCI seperti semula, jalankan perintah ini di terminal OpenWrt:
 
 ```sh
-wget -O /tmp/uninstall.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh](wget -O /tmp/uninstall.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
+wget -qO /tmp/uninstall.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh) && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
 ```
 
 Ketik **`y`** lalu tekan Enter saat diminta konfirmasi.
