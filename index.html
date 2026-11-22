@@ -252,6 +252,7 @@
       </div>
       <div class="fm-right">
         <button class="eject-top-btn" onclick="exitToEject()" title="Keluar Hardisk dan Lepaskan">⏏️ Keluar Hardisk & Lepaskan</button>
+        <button class="icon-btn" onclick="loadFolder(currentPath, true)" title="Muat Ulang Folder">🔄</button>
         <button class="icon-btn" onclick="toggleSearch()" title="Cari">🔍</button>
         <button class="icon-btn" onclick="lockApp()" title="Kunci">🔒</button>
       </div>
@@ -354,7 +355,7 @@
 <script>
 const API = "/cgi-bin/storage-api";
 const BATCH_SIZE = 36;
-const PIN_TTL_MS = 60 * 60 * 1000; // 1 jam
+const PIN_TTL_MS = 5 * 60 * 60 * 1000; // 5 jam
 const PIN_STORE_KEY = "webssd_pin_session";
 
 let sessionPin = "";
@@ -375,6 +376,9 @@ let selectedFile = null;
 let currentFilter = "all";
 let liteMode = false;
 let touchStartX = 0;
+
+// Cache isi folder di RAM (keluar-masuk folder instan 0ms)
+const folderCache = new Map();
 
 let selectionMode = false;
 let selectedPaths = new Set();
@@ -419,7 +423,7 @@ const SVG_ICONS = {
 };
 
 /* =========================================================
-   CACHE THUMBNAIL LOKAL (IndexedDB) + ANTREAN 1-PER-1
+   CACHE THUMBNAIL LOKAL (IndexedDB Blob) + EXIF 64KB + ANTREAN
    ========================================================= */
 const ThumbDB = (() => {
   let dbPromise = null;
@@ -451,12 +455,12 @@ const ThumbDB = (() => {
       } catch { resolve(null); }
     });
   }
-  async function set(key, dataUrl) {
+  async function set(key, blobOrStr) {
     const db = await open();
     if (!db) return;
     try {
       const tx = db.transaction("thumbs", "readwrite");
-      tx.objectStore("thumbs").put({ k: key, d: dataUrl, t: Date.now() });
+      tx.objectStore("thumbs").put({ k: key, d: blobOrStr, t: Date.now() });
     } catch {}
   }
   return { get, set };
@@ -470,7 +474,9 @@ const ThumbQueue = (() => {
   let epoch = 0;
   let activeImg = null;
   let activeVid = null;
+  let activeAbort = null;
   let observer = null;
+  let activeObjectUrls = [];
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
@@ -479,14 +485,104 @@ const ThumbQueue = (() => {
     if (el) el.textContent = txt;
   }
 
-  function applyThumb(box, dataUrl, cat) {
+  function revokeAllObjectUrls() {
+    for (const u of activeObjectUrls) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    activeObjectUrls = [];
+  }
+
+  function applyThumb(box, data, cat) {
     if (!box || !box.isConnected) return;
+    let src = "";
+    if (data instanceof Blob) {
+      src = URL.createObjectURL(data);
+      activeObjectUrls.push(src);
+    } else if (typeof data === "string") {
+      src = data;
+    } else {
+      return;
+    }
     const badge = cat === "video" ? '<div class="vid-badge">▶</div>' : '';
-    box.innerHTML = `<img src="${dataUrl}" alt="">` + badge;
+    box.innerHTML = `<img src="${src}" alt="">` + badge;
     box.dataset.done = "1";
   }
 
-  function makePhotoThumb(url, myEpoch) {
+  function canvasToBlob(quality) {
+    return new Promise((resolve) => {
+      if (canvas.toBlob) {
+        canvas.toBlob((b) => resolve(b), "image/jpeg", quality);
+      } else {
+        try { resolve(canvas.toDataURL("image/jpeg", quality)); }
+        catch { resolve(null); }
+      }
+    });
+  }
+
+  // Ekstrak thumbnail EXIF dari 64KB pertama file JPG (hemat bandwidth hingga 100x)
+  async function tryExifThumb(url, myEpoch) {
+    if (!activeMediaBase) return null;
+    const ctrl = new AbortController();
+    activeAbort = ctrl;
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      const res = await fetch(url, {
+        headers: { Range: "bytes=0-65535" },
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      if (activeAbort === ctrl) activeAbort = null;
+      if (myEpoch !== epoch) return null;
+      if (!res.ok && res.status !== 206) return null;
+
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.length < 32 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+
+      let offset = 2;
+      while (offset + 4 < buf.length) {
+        if (buf[offset] !== 0xFF) break;
+        const marker = buf[offset + 1];
+        if (marker === 0xDA || marker === 0xD9) break;
+        const segLen = (buf[offset + 2] << 8) | buf[offset + 3];
+        if (segLen < 2) break;
+
+        if (marker === 0xE1) { // APP1 (EXIF)
+          const segEnd = Math.min(buf.length, offset + 2 + segLen);
+          let soi = -1;
+          for (let i = offset + 10; i < segEnd - 3; i++) {
+            if (buf[i] === 0xFF && buf[i + 1] === 0xD8 && buf[i + 2] === 0xFF) {
+              soi = i;
+              break;
+            }
+          }
+          if (soi !== -1) {
+            let eoi = -1;
+            for (let j = segEnd - 2; j > soi + 100; j--) {
+              if (buf[j] === 0xFF && buf[j + 1] === 0xD9) {
+                eoi = j + 2;
+                break;
+              }
+            }
+            if (eoi !== -1) {
+              return new Blob([buf.subarray(soi, eoi)], { type: "image/jpeg" });
+            }
+          }
+        }
+        offset += 2 + segLen;
+      }
+    } catch {
+      clearTimeout(timer);
+      if (activeAbort === ctrl) activeAbort = null;
+    }
+    return null;
+  }
+
+  async function makePhotoThumb(url, ext, myEpoch) {
+    if (ext === "jpg" || ext === "jpeg") {
+      const exifBlob = await tryExifThumb(url, myEpoch);
+      if (myEpoch !== epoch) return null;
+      if (exifBlob) return exifBlob;
+    }
     return new Promise((resolve) => {
       const img = new Image();
       activeImg = img;
@@ -501,7 +597,7 @@ const ThumbQueue = (() => {
         resolve(res);
       };
       const timer = setTimeout(() => done(null), 8000);
-      img.onload = () => {
+      img.onload = async () => {
         if (myEpoch !== epoch) return done(null);
         try {
           const max = 240;
@@ -509,7 +605,7 @@ const ThumbQueue = (() => {
           canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
           canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          done(canvas.toDataURL("image/jpeg", 0.72));
+          done(await canvasToBlob(0.72));
         } catch { done(null); }
       };
       img.onerror = () => done(null);
@@ -536,7 +632,7 @@ const ThumbQueue = (() => {
         resolve(res);
       };
 
-      const capture = () => {
+      const capture = async () => {
         if (myEpoch !== epoch) return done(null);
         if (!vid.videoWidth || !vid.videoHeight) return done(null);
         try {
@@ -545,7 +641,7 @@ const ThumbQueue = (() => {
           canvas.width = Math.max(1, Math.round(vid.videoWidth * scale));
           canvas.height = Math.max(1, Math.round(vid.videoHeight * scale));
           ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-          done(canvas.toDataURL("image/jpeg", 0.7));
+          done(await canvasToBlob(0.7));
         } catch { done(null); }
       };
 
@@ -583,18 +679,18 @@ const ThumbQueue = (() => {
         continue;
       }
 
-      const dataUrl = item.cat === "photo"
-        ? await makePhotoThumb(item.url, myEpoch)
+      const data = item.cat === "photo"
+        ? await makePhotoThumb(item.url, item.ext, myEpoch)
         : await makeVideoThumb(item.url, myEpoch);
 
       if (myEpoch !== epoch) break;
-      if (dataUrl) {
-        applyThumb(item.box, dataUrl, item.cat);
-        ThumbDB.set(item.key, dataUrl);
+      if (data) {
+        applyThumb(item.box, data, item.cat);
+        ThumbDB.set(item.key, data);
       } else {
         item.box.dataset.done = "1";
       }
-      await new Promise(r => setTimeout(r, 35));
+      await new Promise(r => setTimeout(r, 25));
     }
 
     running = false;
@@ -605,6 +701,7 @@ const ThumbQueue = (() => {
     if (liteMode || !box || box.dataset.done === "1") return;
     const key = box.dataset.tkey;
     const cat = box.dataset.tcat;
+    const ext = box.dataset.text || "";
     const rel = decodeURIComponent(box.dataset.trel);
     if (!key || !cat || !rel) return;
 
@@ -616,7 +713,7 @@ const ThumbQueue = (() => {
 
     if (queuedSet.has(key)) return;
     queuedSet.add(key);
-    queue.push({ box, key, cat, url: buildMediaUrl(rel) });
+    queue.push({ box, key, cat, ext, url: buildMediaUrl(rel) });
     processNext();
   }
 
@@ -636,6 +733,7 @@ const ThumbQueue = (() => {
   }
 
   function abortActive() {
+    if (activeAbort) { try { activeAbort.abort(); } catch {} activeAbort = null; }
     if (activeImg) { activeImg.onload = activeImg.onerror = null; activeImg.src = ""; activeImg = null; }
     if (activeVid) {
       activeVid.onloadedmetadata = activeVid.onseeked = activeVid.onerror = null;
@@ -650,6 +748,7 @@ const ThumbQueue = (() => {
     queuedSet.clear();
     running = false;
     abortActive();
+    revokeAllObjectUrls();
     if (observer) { observer.disconnect(); observer = null; }
     setStatus("");
   }
@@ -747,6 +846,7 @@ async function submitPin() {
 function lockApp() {
   ThumbQueue.reset();
   resetMoreObserver();
+  folderCache.clear();
   clearPinSession();
   fetch(API + "?action=logout").catch(() => {});
   activeMediaBase = "";
@@ -921,6 +1021,7 @@ async function confirmEjectDisk() {
   if (!dev) return;
   ThumbQueue.reset();
   resetMoreObserver();
+  folderCache.clear();
   document.getElementById("fmBody").innerHTML = '<div class="empty">Melepas hardisk...</div>';
   document.getElementById("viewerBody").innerHTML = "";
   await new Promise(r => setTimeout(r, 450));
@@ -952,7 +1053,7 @@ function openDriveByIdx(idx) {
   document.querySelectorAll(".filter-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
   document.getElementById("viewDashboard").style.display = "none";
   document.getElementById("viewFM").style.display = "flex";
-  loadFolder("");
+  loadFolder("", false);
 }
 
 function goBack() {
@@ -967,7 +1068,7 @@ function goBack() {
   } else {
     const parts = currentPath.split("/");
     parts.pop();
-    loadFolder(parts.join("/"));
+    loadFolder(parts.join("/"), false);
   }
 }
 
@@ -992,12 +1093,22 @@ function toggleLiteMode() {
   renderFM();
 }
 
-async function loadFolder(path) {
+async function loadFolder(path, forceRefresh = false) {
   ThumbQueue.reset();
   resetMoreObserver();
   exitSelectionMode();
   currentPath = path;
   renderBreadcrumb();
+
+  const cacheKey = activeDev + "|" + path;
+  if (!forceRefresh && folderCache.has(cacheKey)) {
+    const cached = folderCache.get(cacheKey);
+    activeMediaBase = cached.mediaBase || activeMediaBase;
+    currentItems = cached.items || [];
+    renderFM();
+    return;
+  }
+
   document.getElementById("fmBody").innerHTML = '<div class="empty">Memuat...</div>';
   const data = await apiFetch("action=list&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(path));
   if (!data) return;
@@ -1007,18 +1118,19 @@ async function loadFolder(path) {
   }
   activeMediaBase = data.mediaBase || "";
   currentItems = data.items || [];
+  folderCache.set(cacheKey, { mediaBase: activeMediaBase, items: currentItems });
   renderFM();
 }
 
 function renderBreadcrumb() {
   const bc = document.getElementById("breadcrumb");
-  let html = `/ <span onclick="loadFolder('')">${esc(activeLabel)}</span> / `;
+  let html = `/ <span onclick="loadFolder('', false)">${esc(activeLabel)}</span> / `;
   if (currentPath) {
     let acc = "";
     currentPath.split("/").forEach(p => {
       acc = acc ? acc + "/" + p : p;
       const target = acc;
-      html += `<span onclick="loadFolder(decodeURIComponent('${encodeURIComponent(target)}'))">${esc(p)}</span> / `;
+      html += `<span onclick="loadFolder(decodeURIComponent('${encodeURIComponent(target)}'), false)">${esc(p)}</span> / `;
     });
   }
   bc.innerHTML = html;
@@ -1135,7 +1247,7 @@ function handleFolderClick(idx, relEnc) {
   const rel = decodeURIComponent(relEnc);
   if (selectionMode) { toggleSelectPath(rel); return; }
   const f = filteredFolders[idx];
-  if (f) loadFolder(rel);
+  if (f) loadFolder(rel, false);
 }
 
 function handleFileClick(idx, relEnc) {
@@ -1156,7 +1268,7 @@ function buildFileCardHTML(f, idx) {
   const badge = cat === "video" ? '<div class="vid-badge">▶</div>' : '';
 
   const thumbAttrs = isMedia
-    ? `data-tkey="${esc(tKey)}" data-tcat="${cat}" data-trel="${relEnc}"`
+    ? `data-tkey="${esc(tKey)}" data-tcat="${cat}" data-text="${esc(ext)}" data-trel="${relEnc}"`
     : "";
 
   return `
@@ -1444,6 +1556,8 @@ async function executePendingDelete() {
   }
   if (errors.length > 0) alert("Sebagian gagal dihapus:\n" + errors.join("\n"));
 
+  folderCache.delete(activeDev + "|" + currentPath);
+
   if (source === "viewer") {
     previewList.splice(currentPreviewIdx, 1);
     if (previewList.length === 0) {
@@ -1456,11 +1570,12 @@ async function executePendingDelete() {
     if (listData && listData.ok) {
       activeMediaBase = listData.mediaBase || activeMediaBase;
       currentItems = listData.items || [];
+      folderCache.set(activeDev + "|" + currentPath, { mediaBase: activeMediaBase, items: currentItems });
       renderFM();
     }
   } else {
     exitSelectionMode();
-    loadFolder(currentPath);
+    loadFolder(currentPath, true);
   }
 }
 
