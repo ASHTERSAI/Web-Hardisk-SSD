@@ -360,6 +360,7 @@ let primaryIdx = -1;
 let pendingEjectDev = "";
 let activeDev = "";
 let activeLabel = "";
+let activeMediaBase = "";
 let currentPath = "";
 let currentItems = [];
 let filteredFolders = [];
@@ -551,7 +552,6 @@ const ThumbQueue = (() => {
 
       setStatus("Memuat thumbnail (" + (queue.length + 1) + ")...");
 
-      // Cek cache IndexedDB sekali lagi sebelum unduh
       const cached = await ThumbDB.get(item.key);
       if (myEpoch !== epoch) break;
       if (cached) {
@@ -570,7 +570,6 @@ const ThumbQueue = (() => {
       } else {
         item.box.dataset.done = "1";
       }
-      // Jeda singkat 35ms agar CPU STB dan UI tetap lega
       await new Promise(r => setTimeout(r, 35));
     }
 
@@ -585,7 +584,6 @@ const ThumbQueue = (() => {
     const rel = decodeURIComponent(box.dataset.trel);
     if (!key || !cat || !rel) return;
 
-    // Cek cache langsung — jika sudah ada di HP, tampil instan tanpa antre!
     const cached = await ThumbDB.get(key);
     if (cached) {
       applyThumb(box, cached, cat);
@@ -594,7 +592,7 @@ const ThumbQueue = (() => {
 
     if (queuedSet.has(key)) return;
     queuedSet.add(key);
-    queue.push({ box, key, cat, url: buildFileUrl(rel) });
+    queue.push({ box, key, cat, url: buildMediaUrl(rel) });
     processNext();
   }
 
@@ -686,6 +684,13 @@ function buildFileUrl(rel) {
   return API + "?action=file&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(rel) + "&pin=" + encodeURIComponent(sessionPin);
 }
 
+function buildMediaUrl(rel) {
+  if (activeMediaBase) {
+    return activeMediaBase + "/" + rel.split("/").map(encodeURIComponent).join("/");
+  }
+  return buildFileUrl(rel);
+}
+
 function showPinScreen() {
   document.getElementById("mainApp").style.display = "none";
   document.getElementById("pinScreen").style.display = "flex";
@@ -717,6 +722,8 @@ async function submitPin() {
 function lockApp() {
   ThumbQueue.reset();
   resetMoreObserver();
+  fetch(API + "?action=logout").catch(() => {});
+  activeMediaBase = "";
   sessionPin = "";
   exitSelectionMode();
   closeActionDialog();
@@ -897,6 +904,7 @@ async function confirmEjectDisk() {
     document.getElementById("viewFM").style.display = "none";
     document.getElementById("viewDashboard").style.display = "block";
     activeDev = "";
+    activeMediaBase = "";
   }
   scanStorage(true);
 }
@@ -907,6 +915,7 @@ function openDriveByIdx(idx) {
   exitSelectionMode();
   activeDev = p.dev;
   activeLabel = p.label;
+  activeMediaBase = "";
   currentPath = "";
   currentFilter = "all";
   document.getElementById("fmTitle").textContent = p.label;
@@ -968,6 +977,7 @@ async function loadFolder(path) {
     document.getElementById("fmBody").innerHTML = '<div class="empty">' + esc(data.msg) + '</div>';
     return;
   }
+  activeMediaBase = data.mediaBase || "";
   currentItems = data.items || [];
   renderFM();
 }
@@ -1159,7 +1169,6 @@ function appendFileBatch() {
   grid.insertAdjacentHTML("beforeend", chunk);
   renderedFileCount = end;
 
-  // Daftarkan elemen media baru ke IntersectionObserver
   if (!liteMode) {
     const cards = grid.children;
     for (let i = start; i < end; i++) {
@@ -1245,14 +1254,14 @@ function openFileAction(idx) {
   const f = filteredFiles[idx];
   if (!f) return;
   const rel = currentPath ? currentPath + "/" + f.name : f.name;
-  const url = buildFileUrl(rel);
+  const url = buildMediaUrl(rel);
   const ic = getIconType(f.name);
   selectedFile = { name: f.name, rel, url, size: f.size, cat: getCategory(f.name), ext: getExt(f.name) };
 
   document.getElementById("actionIcon").innerHTML = `<div class="file-icon-box ic-${ic}" style="margin:0;">${SVG_ICONS[ic]}</div>`;
   document.getElementById("actionName").textContent = f.name;
   document.getElementById("actionMeta").textContent = (selectedFile.ext.toUpperCase() || "FILE") + " · " + fmtSize(f.size);
-  document.getElementById("actionDownload").href = url + "&download=1";
+  document.getElementById("actionDownload").href = buildFileUrl(rel) + "&download=1";
   document.getElementById("actionOverlay").classList.add("open");
 }
 
@@ -1265,7 +1274,7 @@ function viewOriginalFile() {
 
   previewList = filteredFiles.map(item => {
     const rel = currentPath ? currentPath + "/" + item.name : item.name;
-    return { name: item.name, rel, url: buildFileUrl(rel), size: item.size, cat: getCategory(item.name), ext: getExt(item.name) };
+    return { name: item.name, rel, url: buildMediaUrl(rel), size: item.size, cat: getCategory(item.name), ext: getExt(item.name) };
   });
   currentPreviewIdx = previewList.findIndex(m => m.rel === selectedFile.rel);
   if (currentPreviewIdx < 0) currentPreviewIdx = 0;
@@ -1279,7 +1288,7 @@ function renderViewerMedia() {
   if (!m) { closeViewer(); return; }
   document.getElementById("viewerTitle").textContent = m.name;
   document.getElementById("viewerCounter").textContent = (currentPreviewIdx + 1) + " / " + previewList.length;
-  document.getElementById("viewerDownload").href = m.url + "&download=1";
+  document.getElementById("viewerDownload").href = buildFileUrl(m.rel) + "&download=1";
   document.getElementById("navPrev").style.display = previewList.length > 1 ? "flex" : "none";
   document.getElementById("navNext").style.display = previewList.length > 1 ? "flex" : "none";
 
@@ -1417,6 +1426,7 @@ async function executePendingDelete() {
     }
     const listData = await apiFetch("action=list&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(currentPath));
     if (listData && listData.ok) {
+      activeMediaBase = listData.mediaBase || activeMediaBase;
       currentItems = listData.items || [];
       renderFM();
     }
