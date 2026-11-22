@@ -1,6 +1,8 @@
 #!/bin/sh
 
-APP_PIN="123456"
+APP_PIN="121223"
+[ -f /etc/webssd.conf ] && . /etc/webssd.conf
+[ -n "$PIN" ] && APP_PIN="$PIN"
 
 urldecode() {
   printf '%b' "$(printf '%s' "$1" | sed 's/%\([0-9a-fA-F][0-9a-fA-F]\)/\\x\1/g')"
@@ -20,6 +22,13 @@ RAW_PATH=$(get_param "path")
 REL_PATH=$(urldecode "$RAW_PATH")
 DOWNLOAD=$(get_param "download")
 PIN_INPUT=$(urldecode "$(get_param "pin")")
+
+# === LOGOUT (HAPUS SYMLINK SESI) ===
+if [ "$ACTION" = "logout" ]; then
+  rm -rf /www/webssd/s /tmp/webssd_tok 2>/dev/null
+  printf "Content-Type: application/json\r\n\r\n{\"ok\":true}"
+  exit 0
+fi
 
 # === LOGIN PIN ===
 if [ "$ACTION" = "login" ]; then
@@ -50,7 +59,22 @@ get_mountpoint() {
   awk -v d="/dev/$1" '$1==d {print $2; exit}' /proc/mounts
 }
 
-# === TAMPILKAN / DOWNLOAD FILE ===
+get_media_base() {
+  local dev="$1"
+  local mnt="$2"
+  local tok=""
+  [ -f /tmp/webssd_tok ] && tok=$(cat /tmp/webssd_tok 2>/dev/null)
+  if [ -z "$tok" ]; then
+    tok=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-')
+    [ -z "$tok" ] && tok="$(date +%s)$$"
+    printf '%s' "$tok" > /tmp/webssd_tok
+  fi
+  mkdir -p "/www/webssd/s/$tok" 2>/dev/null
+  ln -sfn "$mnt" "/www/webssd/s/$tok/$dev" 2>/dev/null
+  printf '/webssd/s/%s/%s' "$tok" "$dev"
+}
+
+# === DOWNLOAD / FALLBACK FILE ===
 if [ "$ACTION" = "file" ]; then
   if ! validate_dev "$DEV"; then
     printf "Status: 400 Bad Request\r\n\r\nInvalid device"
@@ -188,6 +212,7 @@ if [ "$ACTION" = "unmount" ]; then
     printf '{"ok":false,"msg":"Perangkat tidak valid"}'
     exit 0
   fi
+  rm -f /www/webssd/s/*/"$DEV" 2>/dev/null
   MNT=$(get_mountpoint "$DEV")
   if [ -z "$MNT" ]; then
     printf '{"ok":true,"msg":"Partisi sudah terlepas"}'
@@ -225,27 +250,37 @@ if [ "$ACTION" = "list" ]; then
     exit 0
   fi
 
-  printf '{"ok":true,"items":['
-  FIRST=1
-  for item in "$TARGET"/*; do
-    [ -e "$item" ] || continue
-    name=$(basename "$item")
-    [ "$name" = "System Volume Information" ] && continue
-    [ "$name" = "\$RECYCLE.BIN" ] && continue
+  MEDIA_BASE=$(get_media_base "$DEV" "$MNT")
+  printf '{"ok":true,"mediaBase":"%s","items":[' "$(json_escape "$MEDIA_BASE")"
+  ls -ln "$TARGET" 2>/dev/null | awk '
+    BEGIN { first = 1 }
+    /^total / { next }
+    NF < 8 { next }
+    {
+      perm = $1
+      c = substr(perm, 1, 1)
+      if (c != "d" && c != "-" && c != "l") next
+      isdir = (c == "d") ? "true" : "false"
+      size = (c == "d") ? 0 : ($5 + 0)
 
-    if [ -d "$item" ]; then
-      isdir="true"
-      size=0
-    else
-      isdir="false"
-      size=$(ls -ldn "$item" | awk '{print $5}')
-      [ -z "$size" ] && size=0
-    fi
+      line = $0
+      if ($6 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+        sub(/^[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +/, "", line)
+      } else {
+        sub(/^[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +/, "", line)
+      }
+      if (c == "l") sub(/ -> .*$/, "", line)
+      if (line == "" || line == "." || line == ".." || line == "System Volume Information" || line == "$RECYCLE.BIN") next
 
-    [ "$FIRST" = "0" ] && printf ','
-    FIRST=0
-    printf '{"name":"%s","isDir":%s,"size":%s}' "$(json_escape "$name")" "$isdir" "$size"
-  done
+      gsub(/\\/, "\\\\\\\\", line)
+      gsub(/"/, "\\\"", line)
+      gsub(/\r/, "", line)
+
+      if (!first) printf ","
+      first = 0
+      printf "{\"name\":\"%s\",\"isDir\":%s,\"size\":%s}", line, isdir, size
+    }
+  '
   printf ']}'
   exit 0
 fi
