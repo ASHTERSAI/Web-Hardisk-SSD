@@ -298,6 +298,7 @@
     <div class="dialog-sub" id="actionMeta"></div>
     <div class="dialog-actions">
       <button class="btn btn-blue" onclick="viewOriginalFile()">👁️ Tampilkan File Asli</button>
+      <a class="btn btn-dark" id="actionExternal" href="#" style="display:none; background:#ea580c;">▶️ Putar di VLC / MX Player</a>
       <a class="btn btn-dark" id="actionDownload" href="#" download>⬇️ Download</a>
       <button class="btn btn-outline" style="margin-top:0;" onclick="closeActionDialog()">Batal</button>
     </div>
@@ -521,7 +522,6 @@ const ThumbQueue = (() => {
 
   // Ekstrak thumbnail EXIF dari 64KB pertama file JPG (hemat bandwidth hingga 100x)
   async function tryExifThumb(url, myEpoch) {
-    if (!activeMediaBase) return null;
     const ctrl = new AbortController();
     activeAbort = ctrl;
     const timer = setTimeout(() => ctrl.abort(), 4000);
@@ -577,9 +577,9 @@ const ThumbQueue = (() => {
     return null;
   }
 
-  async function makePhotoThumb(url, ext, myEpoch) {
+  async function makePhotoThumb(url, rangeUrl, ext, myEpoch) {
     if (ext === "jpg" || ext === "jpeg") {
-      const exifBlob = await tryExifThumb(url, myEpoch);
+      const exifBlob = await tryExifThumb(rangeUrl, myEpoch);
       if (myEpoch !== epoch) return null;
       if (exifBlob) return exifBlob;
     }
@@ -680,8 +680,8 @@ const ThumbQueue = (() => {
       }
 
       const data = item.cat === "photo"
-        ? await makePhotoThumb(item.url, item.ext, myEpoch)
-        : await makeVideoThumb(item.url, myEpoch);
+        ? await makePhotoThumb(item.url, item.rangeUrl, item.ext, myEpoch)
+        : await makeVideoThumb(item.rangeUrl, myEpoch);
 
       if (myEpoch !== epoch) break;
       if (data) {
@@ -713,7 +713,7 @@ const ThumbQueue = (() => {
 
     if (queuedSet.has(key)) return;
     queuedSet.add(key);
-    queue.push({ box, key, cat, ext, url: buildMediaUrl(rel) });
+    queue.push({ box, key, cat, ext, url: buildMediaUrl(rel), rangeUrl: buildFileUrl(rel) });
     processNext();
   }
 
@@ -812,6 +812,13 @@ function buildMediaUrl(rel) {
     return activeMediaBase + "/" + rel.split("/").map(encodeURIComponent).join("/");
   }
   return buildFileUrl(rel);
+}
+
+function buildExternalPlayerUrl(rel) {
+  const fullUrl = new URL(buildFileUrl(rel), window.location.href);
+  const scheme = fullUrl.protocol.replace(":", "");
+  const noScheme = fullUrl.href.replace(/^https?:\/\//, "");
+  return "intent://" + noScheme + "#Intent;scheme=" + scheme + ";type=video/*;end";
 }
 
 function showPinScreen() {
@@ -1402,6 +1409,11 @@ function openFileAction(idx) {
   document.getElementById("actionName").textContent = f.name;
   document.getElementById("actionMeta").textContent = (selectedFile.ext.toUpperCase() || "FILE") + " · " + fmtSize(f.size);
   document.getElementById("actionDownload").href = buildFileUrl(rel) + "&download=1";
+
+  const extBtn = document.getElementById("actionExternal");
+  extBtn.style.display = (selectedFile.cat === "video") ? "flex" : "none";
+  if (selectedFile.cat === "video") extBtn.href = buildExternalPlayerUrl(rel);
+
   document.getElementById("actionOverlay").classList.add("open");
 }
 
@@ -1436,11 +1448,11 @@ function renderViewerMedia() {
   if (m.cat === "photo") {
     body.innerHTML = `<img src="${m.url}" alt="${esc(m.name)}">`;
   } else if (m.cat === "video") {
-    body.innerHTML = `<video src="${m.url}" controls autoplay playsinline></video>`;
+    body.innerHTML = `<video src="${buildFileUrl(m.rel)}" controls autoplay playsinline></video>`;
   } else if (["pdf","txt","log","csv"].includes(m.ext)) {
     body.innerHTML = `<iframe src="${m.url}" title="${esc(m.name)}"></iframe>`;
   } else if (["mp3","wav","ogg","m4a"].includes(m.ext)) {
-    body.innerHTML = `<div class="other-preview"><div style="font-size:56px;margin-bottom:14px;">🎵</div><div style="margin-bottom:16px;font-weight:600;">${esc(m.name)}</div><audio src="${m.url}" controls autoplay style="width:100%;"></audio></div>`;
+    body.innerHTML = `<div class="other-preview"><div style="font-size:56px;margin-bottom:14px;">🎵</div><div style="margin-bottom:16px;font-weight:600;">${esc(m.name)}</div><audio src="${buildFileUrl(m.rel)}" controls autoplay style="width:100%;"></audio></div>`;
   } else {
     body.innerHTML = `<div class="other-preview"><div style="font-size:56px;margin-bottom:12px;">📄</div><div style="font-weight:700;margin-bottom:6px;">${esc(m.name)}</div><div style="font-size:13px;color:#cbd5e1;margin-bottom:16px;">${(m.ext || "FILE").toUpperCase()} · ${fmtSize(m.size)}</div><div style="font-size:12px;color:#94a3b8;">Preview langsung tidak didukung browser untuk format ini. Gunakan tombol Unduh di atas.</div></div>`;
   }
