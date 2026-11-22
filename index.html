@@ -424,7 +424,8 @@ const SVG_ICONS = {
 };
 
 /* =========================================================
-   CACHE THUMBNAIL LOKAL (IndexedDB Blob) + EXIF 64KB + ANTREAN
+   CACHE THUMBNAIL LOKAL (IndexedDB Blob)
+   + ANTREAN TERPISAH: FOTO (3 PARALEL) & VIDEO (1-PER-1)
    ========================================================= */
 const ThumbDB = (() => {
   let dbPromise = null;
@@ -468,22 +469,26 @@ const ThumbDB = (() => {
 })();
 
 const ThumbQueue = (() => {
-  let queue = [];
+  const PHOTO_CONCURRENCY = 3;
+  const EXIF_MIN_BYTES = 400 * 1024; // Cek EXIF hanya untuk JPG > 400KB
+
+  let photoQueue = [];
+  let videoQueue = [];
   let queuedSet = new Set();
-  let running = false;
+  let photoWorkers = 0;
+  let videoRunning = false;
   let paused = false;
   let epoch = 0;
-  let activeImg = null;
+  let activeAborts = new Set();
   let activeVid = null;
-  let activeAbort = null;
   let observer = null;
   let activeObjectUrls = [];
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
 
-  function setStatus(txt) {
+  function updateStatus() {
     const el = document.getElementById("thumbStatus");
-    if (el) el.textContent = txt;
+    if (!el) return;
+    const total = photoQueue.length + videoQueue.length + photoWorkers + (videoRunning ? 1 : 0);
+    el.textContent = total > 0 ? ("Memuat thumbnail (" + total + ")...") : "";
   }
 
   function revokeAllObjectUrls() {
@@ -509,29 +514,36 @@ const ThumbQueue = (() => {
     box.dataset.done = "1";
   }
 
-  function canvasToBlob(quality) {
+  function resizeSourceToBlob(source, w, h, quality) {
+    const max = 240;
+    const scale = Math.min(1, max / Math.max(w || 1, h || 1));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const c = document.createElement("canvas");
+    c.width = cw;
+    c.height = ch;
+    c.getContext("2d").drawImage(source, 0, 0, cw, ch);
     return new Promise((resolve) => {
-      if (canvas.toBlob) {
-        canvas.toBlob((b) => resolve(b), "image/jpeg", quality);
+      if (c.toBlob) {
+        c.toBlob((b) => resolve(b), "image/jpeg", quality);
       } else {
-        try { resolve(canvas.toDataURL("image/jpeg", quality)); }
+        try { resolve(c.toDataURL("image/jpeg", quality)); }
         catch { resolve(null); }
       }
     });
   }
 
-  // Ekstrak thumbnail EXIF dari 64KB pertama file JPG (hemat bandwidth hingga 100x)
   async function tryExifThumb(url, myEpoch) {
     const ctrl = new AbortController();
-    activeAbort = ctrl;
-    const timer = setTimeout(() => ctrl.abort(), 4000);
+    activeAborts.add(ctrl);
+    const timer = setTimeout(() => ctrl.abort(), 3500);
     try {
       const res = await fetch(url, {
         headers: { Range: "bytes=0-65535" },
         signal: ctrl.signal
       });
       clearTimeout(timer);
-      if (activeAbort === ctrl) activeAbort = null;
+      activeAborts.delete(ctrl);
       if (myEpoch !== epoch) return null;
       if (!res.ok && res.status !== 206) return null;
 
@@ -546,7 +558,7 @@ const ThumbQueue = (() => {
         const segLen = (buf[offset + 2] << 8) | buf[offset + 3];
         if (segLen < 2) break;
 
-        if (marker === 0xE1) { // APP1 (EXIF)
+        if (marker === 0xE1) {
           const segEnd = Math.min(buf.length, offset + 2 + segLen);
           let soi = -1;
           for (let i = offset + 10; i < segEnd - 3; i++) {
@@ -572,45 +584,61 @@ const ThumbQueue = (() => {
       }
     } catch {
       clearTimeout(timer);
-      if (activeAbort === ctrl) activeAbort = null;
+      activeAborts.delete(ctrl);
     }
     return null;
   }
 
-  async function makePhotoThumb(url, rangeUrl, ext, myEpoch) {
-    if (ext === "jpg" || ext === "jpeg") {
-      const exifBlob = await tryExifThumb(rangeUrl, myEpoch);
+  async function makePhotoThumb(item, myEpoch) {
+    // 1. Cek EXIF 64KB hanya jika JPG/JPEG berukuran > 400KB
+    if ((item.ext === "jpg" || item.ext === "jpeg") && item.size > EXIF_MIN_BYTES) {
+      const exifBlob = await tryExifThumb(item.rangeUrl, myEpoch);
       if (myEpoch !== epoch) return null;
       if (exifBlob) return exifBlob;
     }
-    return new Promise((resolve) => {
-      const img = new Image();
-      activeImg = img;
-      let settled = false;
-      const done = (res) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (activeImg === img) activeImg = null;
-        img.onload = img.onerror = null;
-        img.src = "";
-        resolve(res);
-      };
-      const timer = setTimeout(() => done(null), 8000);
-      img.onload = async () => {
-        if (myEpoch !== epoch) return done(null);
+
+    // 2. Ambil langsung via jalur cepat uhttpd + decode createImageBitmap
+    const ctrl = new AbortController();
+    activeAborts.add(ctrl);
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(item.url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      activeAborts.delete(ctrl);
+      if (myEpoch !== epoch || !res.ok) return null;
+
+      const blob = await res.blob();
+      if (myEpoch !== epoch) return null;
+
+      // Jika file sudah kecil (< 120KB), langsung pakai tanpa resize
+      if (blob.size <= 120 * 1024 && item.ext !== "svg") return blob;
+
+      if (window.createImageBitmap) {
         try {
-          const max = 240;
-          const scale = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
-          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          done(await canvasToBlob(0.72));
-        } catch { done(null); }
-      };
-      img.onerror = () => done(null);
-      img.src = url;
-    });
+          const bmp = await createImageBitmap(blob);
+          const out = await resizeSourceToBlob(bmp, bmp.width, bmp.height, 0.72);
+          if (bmp.close) bmp.close();
+          return out;
+        } catch {}
+      }
+
+      // Fallback Image elemen jika createImageBitmap tidak tersedia
+      return await new Promise((resolve) => {
+        const objUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = async () => {
+          URL.revokeObjectURL(objUrl);
+          if (myEpoch !== epoch) return resolve(null);
+          resolve(await resizeSourceToBlob(img, img.naturalWidth, img.naturalHeight, 0.72));
+        };
+        img.onerror = () => { URL.revokeObjectURL(objUrl); resolve(null); };
+        img.src = objUrl;
+      });
+    } catch {
+      clearTimeout(timer);
+      activeAborts.delete(ctrl);
+      return null;
+    }
   }
 
   function makeVideoThumb(url, myEpoch) {
@@ -636,12 +664,7 @@ const ThumbQueue = (() => {
         if (myEpoch !== epoch) return done(null);
         if (!vid.videoWidth || !vid.videoHeight) return done(null);
         try {
-          const max = 240;
-          const scale = Math.min(1, max / Math.max(vid.videoWidth, vid.videoHeight));
-          canvas.width = Math.max(1, Math.round(vid.videoWidth * scale));
-          canvas.height = Math.max(1, Math.round(vid.videoHeight * scale));
-          ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-          done(await canvasToBlob(0.7));
+          done(await resizeSourceToBlob(vid, vid.videoWidth, vid.videoHeight, 0.7));
         } catch { done(null); }
       };
 
@@ -659,42 +682,80 @@ const ThumbQueue = (() => {
     });
   }
 
-  async function processNext() {
-    if (running || paused) return;
-    if (queue.length === 0) { setStatus(""); return; }
-    running = true;
+  async function runPhotoWorker() {
+    if (paused) return;
+    photoWorkers++;
     const myEpoch = epoch;
+    updateStatus();
 
-    while (queue.length > 0 && !paused && myEpoch === epoch) {
-      const item = queue.shift();
+    while (photoQueue.length > 0 && !paused && myEpoch === epoch) {
+      const item = photoQueue.shift();
       queuedSet.delete(item.key);
       if (!item.box.isConnected || item.box.dataset.done === "1") continue;
-
-      setStatus("Memuat thumbnail (" + (queue.length + 1) + ")...");
 
       const cached = await ThumbDB.get(item.key);
       if (myEpoch !== epoch) break;
       if (cached) {
-        applyThumb(item.box, cached, item.cat);
+        applyThumb(item.box, cached, "photo");
+        updateStatus();
         continue;
       }
 
-      const data = item.cat === "photo"
-        ? await makePhotoThumb(item.url, item.rangeUrl, item.ext, myEpoch)
-        : await makeVideoThumb(item.rangeUrl, myEpoch);
-
+      const data = await makePhotoThumb(item, myEpoch);
       if (myEpoch !== epoch) break;
       if (data) {
-        applyThumb(item.box, data, item.cat);
+        applyThumb(item.box, data, "photo");
         ThumbDB.set(item.key, data);
       } else {
         item.box.dataset.done = "1";
       }
+      updateStatus();
+    }
+
+    photoWorkers = Math.max(0, photoWorkers - 1);
+    updateStatus();
+  }
+
+  function kickPhotoWorkers() {
+    if (paused) return;
+    while (photoWorkers < PHOTO_CONCURRENCY && photoQueue.length > 0) {
+      runPhotoWorker();
+    }
+  }
+
+  async function runVideoWorker() {
+    if (videoRunning || paused || videoQueue.length === 0) return;
+    videoRunning = true;
+    const myEpoch = epoch;
+    updateStatus();
+
+    while (videoQueue.length > 0 && !paused && myEpoch === epoch) {
+      const item = videoQueue.shift();
+      queuedSet.delete(item.key);
+      if (!item.box.isConnected || item.box.dataset.done === "1") continue;
+
+      const cached = await ThumbDB.get(item.key);
+      if (myEpoch !== epoch) break;
+      if (cached) {
+        applyThumb(item.box, cached, "video");
+        updateStatus();
+        continue;
+      }
+
+      const data = await makeVideoThumb(item.rangeUrl, myEpoch);
+      if (myEpoch !== epoch) break;
+      if (data) {
+        applyThumb(item.box, data, "video");
+        ThumbDB.set(item.key, data);
+      } else {
+        item.box.dataset.done = "1";
+      }
+      updateStatus();
       await new Promise(r => setTimeout(r, 25));
     }
 
-    running = false;
-    if (queue.length === 0) setStatus("");
+    videoRunning = false;
+    updateStatus();
   }
 
   async function enqueue(box) {
@@ -702,6 +763,7 @@ const ThumbQueue = (() => {
     const key = box.dataset.tkey;
     const cat = box.dataset.tcat;
     const ext = box.dataset.text || "";
+    const size = Number(box.dataset.tsize || 0);
     const rel = decodeURIComponent(box.dataset.trel);
     if (!key || !cat || !rel) return;
 
@@ -713,8 +775,15 @@ const ThumbQueue = (() => {
 
     if (queuedSet.has(key)) return;
     queuedSet.add(key);
-    queue.push({ box, key, cat, ext, url: buildMediaUrl(rel), rangeUrl: buildFileUrl(rel) });
-    processNext();
+    const item = { box, key, cat, ext, size, url: buildMediaUrl(rel), rangeUrl: buildFileUrl(rel) };
+
+    if (cat === "photo") {
+      photoQueue.push(item);
+      kickPhotoWorkers();
+    } else {
+      videoQueue.push(item);
+      runVideoWorker();
+    }
   }
 
   function observe(el) {
@@ -727,14 +796,14 @@ const ThumbQueue = (() => {
             enqueue(entry.target);
           }
         });
-      }, { rootMargin: "160px 0px" });
+      }, { rootMargin: "200px 0px" });
     }
     observer.observe(el);
   }
 
   function abortActive() {
-    if (activeAbort) { try { activeAbort.abort(); } catch {} activeAbort = null; }
-    if (activeImg) { activeImg.onload = activeImg.onerror = null; activeImg.src = ""; activeImg = null; }
+    activeAborts.forEach(c => { try { c.abort(); } catch {} });
+    activeAborts.clear();
     if (activeVid) {
       activeVid.onloadedmetadata = activeVid.onseeked = activeVid.onerror = null;
       try { activeVid.pause(); activeVid.removeAttribute("src"); activeVid.load(); } catch {}
@@ -744,13 +813,15 @@ const ThumbQueue = (() => {
 
   function reset() {
     epoch++;
-    queue = [];
+    photoQueue = [];
+    videoQueue = [];
     queuedSet.clear();
-    running = false;
+    photoWorkers = 0;
+    videoRunning = false;
     abortActive();
     revokeAllObjectUrls();
     if (observer) { observer.disconnect(); observer = null; }
-    setStatus("");
+    updateStatus();
   }
 
   function pause() {
@@ -760,7 +831,8 @@ const ThumbQueue = (() => {
 
   function resume() {
     paused = false;
-    processNext();
+    kickPhotoWorkers();
+    runVideoWorker();
   }
 
   return { observe, reset, pause, resume };
@@ -1275,7 +1347,7 @@ function buildFileCardHTML(f, idx) {
   const badge = cat === "video" ? '<div class="vid-badge">▶</div>' : '';
 
   const thumbAttrs = isMedia
-    ? `data-tkey="${esc(tKey)}" data-tcat="${cat}" data-text="${esc(ext)}" data-trel="${relEnc}"`
+    ? `data-tkey="${esc(tKey)}" data-tcat="${cat}" data-text="${esc(ext)}" data-tsize="${f.size || 0}" data-trel="${relEnc}"`
     : "";
 
   return `
