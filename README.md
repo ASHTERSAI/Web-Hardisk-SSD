@@ -57,7 +57,7 @@ wget -O /tmp/install.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-
 cara UPDATE (jika ada perubahan)
 
 ```sh
-wget -O /www/webssd/index.html https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/index.html
+wget -O /www/cgi-bin/storage-api https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/storage-api && chmod +x /www/cgi-bin/storage-api && wget -O /www/webssd/index.html https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/index.html && wget -O /etc/hotplug.d/block/99-usb-automount https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/99-usb-automount && chmod +x /etc/hotplug.d/block/99-usb-automount && echo "UPDATE SELESAI!"
 ```
 
 3. Ikuti 2 langkah konfirmasi yang muncul di terminal:
