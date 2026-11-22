@@ -354,6 +354,9 @@
 <script>
 const API = "/cgi-bin/storage-api";
 const BATCH_SIZE = 36;
+const PIN_TTL_MS = 60 * 60 * 1000; // 1 jam
+const PIN_STORE_KEY = "webssd_pin_session";
+
 let sessionPin = "";
 let partitionsList = [];
 let primaryIdx = -1;
@@ -384,6 +387,27 @@ let pendingDeleteTargets = [];
 let pendingDeleteSource = "";
 
 document.cookie = "storage_pin=; Path=/; Max-Age=0";
+
+function savePinSession(pin) {
+  try {
+    localStorage.setItem(PIN_STORE_KEY, JSON.stringify({ pin, exp: Date.now() + PIN_TTL_MS }));
+  } catch {}
+}
+
+function getSavedPin() {
+  try {
+    const raw = localStorage.getItem(PIN_STORE_KEY);
+    if (!raw) return "";
+    const obj = JSON.parse(raw);
+    if (obj && obj.pin && obj.exp > Date.now()) return obj.pin;
+    localStorage.removeItem(PIN_STORE_KEY);
+  } catch {}
+  return "";
+}
+
+function clearPinSession() {
+  try { localStorage.removeItem(PIN_STORE_KEY); } catch {}
+}
 
 const SVG_ICONS = {
   folder: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
@@ -711,6 +735,7 @@ async function submitPin() {
   const data = await res.json();
   if (data.ok) {
     sessionPin = pin;
+    savePinSession(pin);
     showMainApp();
     scanStorage(true);
   } else {
@@ -722,6 +747,7 @@ async function submitPin() {
 function lockApp() {
   ThumbQueue.reset();
   resetMoreObserver();
+  clearPinSession();
   fetch(API + "?action=logout").catch(() => {});
   activeMediaBase = "";
   sessionPin = "";
@@ -737,8 +763,10 @@ function lockApp() {
   showPinScreen();
 }
 
-window.addEventListener("pagehide", () => { ThumbQueue.reset(); sessionPin = ""; });
-window.addEventListener("pageshow", (e) => { if (e.persisted || !sessionPin) lockApp(); });
+window.addEventListener("pagehide", () => { ThumbQueue.reset(); });
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted && !getSavedPin()) lockApp();
+});
 
 async function apiFetch(params) {
   if (!sessionPin) { lockApp(); return null; }
@@ -1436,7 +1464,25 @@ async function executePendingDelete() {
   }
 }
 
-showPinScreen();
+async function initApp() {
+  const saved = getSavedPin();
+  if (saved) {
+    try {
+      const res = await fetch(API + "?action=login&pin=" + encodeURIComponent(saved), { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok) {
+        sessionPin = saved;
+        showMainApp();
+        scanStorage(true);
+        return;
+      }
+    } catch {}
+    clearPinSession();
+  }
+  showPinScreen();
+}
+
+initApp();
 </script>
 </body>
 </html>
