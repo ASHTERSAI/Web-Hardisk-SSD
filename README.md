@@ -54,6 +54,12 @@ Pastikan STB OpenWrt Anda terhubung ke internet, jam/tanggal STB sudah sesuai, d
 wget -O /tmp/install.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh && sh /tmp/install.sh && rm -f /tmp/install.sh
 ```
 
+cara UPDATE (jika ada perubahan)
+
+```sh
+wget -O /www/webssd/index.html https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/index.html
+```
+
 3. Ikuti 2 langkah konfirmasi yang muncul di terminal:
    - **Masukkan alamat web hardisk** (contoh: `webhardisk.com` — bebas ketik apa saja berakhiran `.com`, tidak perlu beli domain).
    - **Masukkan PIN akses** (contoh: `123456`).
