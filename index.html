@@ -100,12 +100,15 @@
   .breadcrumb { padding: 10px 18px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow-x: auto; }
   .breadcrumb span { cursor: pointer; color: var(--blue); font-weight: 600; }
 
-  .filters { display: flex; gap: 8px; padding: 0 18px 12px; overflow-x: auto; }
+  .filters { display: flex; gap: 8px; padding: 0 18px 12px; overflow-x: auto; align-items: center; }
   .filter-btn { background: #f1f5f9; color: #334155; border: none; padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   .filter-btn.active { background: var(--navy); color: #fff; }
+  .lite-btn { margin-left: auto; background: #fff; color: #475569; border: 1.5px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .lite-btn.on { background: #fef3c7; color: #b45309; border-color: #fcd34d; }
 
   .fm-body { padding: 4px 18px 92px; flex: 1; }
-  .sub-label { font-size: 14px; font-weight: 700; margin: 16px 0 10px; color: #334155; }
+  .sub-label { font-size: 14px; font-weight: 700; margin: 16px 0 10px; color: #334155; display: flex; justify-content: space-between; align-items: center; }
+  .thumb-status { font-size: 11px; font-weight: 600; color: var(--muted); }
 
   .select-bar { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--navy); color: #fff; padding: 12px 16px; z-index: 40; box-shadow: 0 -4px 20px rgba(0,0,0,0.2); }
   .select-bar.open { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -128,8 +131,9 @@
   .file-card { background: #fff; border: 2px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.1s; }
   .file-card:hover { transform: translateY(-2px); border-color: #cbd5e1; }
   .file-thumb { aspect-ratio: 1 / 1; width: 100%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
-  .file-thumb img, .file-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  .vid-badge { position: absolute; width: 34px; height: 34px; border-radius: 999px; background: rgba(15,23,42,0.72); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; padding-left: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .file-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  @keyframes fadeIn { from { opacity: 0.3; } to { opacity: 1; } }
+  .vid-badge { position: absolute; width: 34px; height: 34px; border-radius: 999px; background: rgba(15,23,42,0.72); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; padding-left: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; }
   .file-icon-box { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
   .ic-photo { background: #dcfce7; color: #16a34a; }
   .ic-video { background: #ffedd5; color: #ea580c; }
@@ -139,6 +143,9 @@
   .file-info { padding: 8px; text-align: center; }
   .file-name { font-size: 12px; font-weight: 600; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-meta { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; }
+
+  .load-more-wrap { text-align: center; padding: 18px 0 8px; }
+  .load-more-btn { background: #f1f5f9; color: #334155; border: 1px solid var(--border); padding: 9px 20px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; }
 
   .is-selected { border-color: var(--blue) !important; background: #eff6ff !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
   .check-badge { display: none; position: absolute; top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; border: 2px solid #fff; background: rgba(15,23,42,0.45); color: #fff; font-size: 12px; font-weight: 700; align-items: center; justify-content: center; z-index: 5; }
@@ -261,6 +268,7 @@
       <button class="filter-btn" onclick="setFilter('photo', this)">🖼️ Foto</button>
       <button class="filter-btn" onclick="setFilter('video', this)">🎬 Video</button>
       <button class="filter-btn" onclick="setFilter('file', this)">📄 File</button>
+      <button class="lite-btn" id="btnLiteMode" onclick="toggleLiteMode()" title="Matikan thumbnail untuk buka folder super cepat">⚡ Mode Ringan</button>
     </div>
 
     <div class="fm-body" id="fmBody"></div>
@@ -345,6 +353,7 @@
 
 <script>
 const API = "/cgi-bin/storage-api";
+const BATCH_SIZE = 36;
 let sessionPin = "";
 let partitionsList = [];
 let primaryIdx = -1;
@@ -355,10 +364,12 @@ let currentPath = "";
 let currentItems = [];
 let filteredFolders = [];
 let filteredFiles = [];
+let renderedFileCount = 0;
 let previewList = [];
 let currentPreviewIdx = -1;
 let selectedFile = null;
 let currentFilter = "all";
+let liteMode = false;
 let touchStartX = 0;
 
 let selectionMode = false;
@@ -381,6 +392,263 @@ const SVG_ICONS = {
   audio: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   file: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>'
 };
+
+/* =========================================================
+   CACHE THUMBNAIL LOKAL (IndexedDB) + ANTREAN 1-PER-1
+   ========================================================= */
+const ThumbDB = (() => {
+  let dbPromise = null;
+  function open() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      if (!window.indexedDB) return resolve(null);
+      const req = indexedDB.open("webssd_thumbs_v1", 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("thumbs")) {
+          db.createObjectStore("thumbs", { keyPath: "k" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+    return dbPromise;
+  }
+  async function get(key) {
+    const db = await open();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("thumbs", "readonly");
+        const req = tx.objectStore("thumbs").get(key);
+        req.onsuccess = () => resolve(req.result ? req.result.d : null);
+        req.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    });
+  }
+  async function set(key, dataUrl) {
+    const db = await open();
+    if (!db) return;
+    try {
+      const tx = db.transaction("thumbs", "readwrite");
+      tx.objectStore("thumbs").put({ k: key, d: dataUrl, t: Date.now() });
+    } catch {}
+  }
+  return { get, set };
+})();
+
+const ThumbQueue = (() => {
+  let queue = [];
+  let queuedSet = new Set();
+  let running = false;
+  let paused = false;
+  let epoch = 0;
+  let activeImg = null;
+  let activeVid = null;
+  let observer = null;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  function setStatus(txt) {
+    const el = document.getElementById("thumbStatus");
+    if (el) el.textContent = txt;
+  }
+
+  function applyThumb(box, dataUrl, cat) {
+    if (!box || !box.isConnected) return;
+    const badge = cat === "video" ? '<div class="vid-badge">▶</div>' : '';
+    box.innerHTML = `<img src="${dataUrl}" alt="">` + badge;
+    box.dataset.done = "1";
+  }
+
+  function makePhotoThumb(url, myEpoch) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      activeImg = img;
+      let settled = false;
+      const done = (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (activeImg === img) activeImg = null;
+        img.onload = img.onerror = null;
+        img.src = "";
+        resolve(res);
+      };
+      const timer = setTimeout(() => done(null), 8000);
+      img.onload = () => {
+        if (myEpoch !== epoch) return done(null);
+        try {
+          const max = 240;
+          const scale = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          done(canvas.toDataURL("image/jpeg", 0.72));
+        } catch { done(null); }
+      };
+      img.onerror = () => done(null);
+      img.src = url;
+    });
+  }
+
+  function makeVideoThumb(url, myEpoch) {
+    return new Promise((resolve) => {
+      const vid = document.createElement("video");
+      activeVid = vid;
+      vid.muted = true;
+      vid.playsInline = true;
+      vid.preload = "metadata";
+      let settled = false;
+
+      const done = (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (activeVid === vid) activeVid = null;
+        vid.onloadedmetadata = vid.onseeked = vid.onloadeddata = vid.onerror = null;
+        try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch {}
+        resolve(res);
+      };
+
+      const capture = () => {
+        if (myEpoch !== epoch) return done(null);
+        if (!vid.videoWidth || !vid.videoHeight) return done(null);
+        try {
+          const max = 240;
+          const scale = Math.min(1, max / Math.max(vid.videoWidth, vid.videoHeight));
+          canvas.width = Math.max(1, Math.round(vid.videoWidth * scale));
+          canvas.height = Math.max(1, Math.round(vid.videoHeight * scale));
+          ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+          done(canvas.toDataURL("image/jpeg", 0.7));
+        } catch { done(null); }
+      };
+
+      const timer = setTimeout(() => done(null), 7000);
+
+      vid.onloadedmetadata = () => {
+        if (myEpoch !== epoch) return done(null);
+        const target = (vid.duration && isFinite(vid.duration)) ? Math.min(1.0, vid.duration * 0.15) : 0.2;
+        try { vid.currentTime = target > 0 ? target : 0.1; }
+        catch { capture(); }
+      };
+      vid.onseeked = capture;
+      vid.onerror = () => done(null);
+      vid.src = url;
+    });
+  }
+
+  async function processNext() {
+    if (running || paused) return;
+    if (queue.length === 0) { setStatus(""); return; }
+    running = true;
+    const myEpoch = epoch;
+
+    while (queue.length > 0 && !paused && myEpoch === epoch) {
+      const item = queue.shift();
+      queuedSet.delete(item.key);
+      if (!item.box.isConnected || item.box.dataset.done === "1") continue;
+
+      setStatus("Memuat thumbnail (" + (queue.length + 1) + ")...");
+
+      // Cek cache IndexedDB sekali lagi sebelum unduh
+      const cached = await ThumbDB.get(item.key);
+      if (myEpoch !== epoch) break;
+      if (cached) {
+        applyThumb(item.box, cached, item.cat);
+        continue;
+      }
+
+      const dataUrl = item.cat === "photo"
+        ? await makePhotoThumb(item.url, myEpoch)
+        : await makeVideoThumb(item.url, myEpoch);
+
+      if (myEpoch !== epoch) break;
+      if (dataUrl) {
+        applyThumb(item.box, dataUrl, item.cat);
+        ThumbDB.set(item.key, dataUrl);
+      } else {
+        item.box.dataset.done = "1";
+      }
+      // Jeda singkat 35ms agar CPU STB dan UI tetap lega
+      await new Promise(r => setTimeout(r, 35));
+    }
+
+    running = false;
+    if (queue.length === 0) setStatus("");
+  }
+
+  async function enqueue(box) {
+    if (liteMode || !box || box.dataset.done === "1") return;
+    const key = box.dataset.tkey;
+    const cat = box.dataset.tcat;
+    const rel = decodeURIComponent(box.dataset.trel);
+    if (!key || !cat || !rel) return;
+
+    // Cek cache langsung — jika sudah ada di HP, tampil instan tanpa antre!
+    const cached = await ThumbDB.get(key);
+    if (cached) {
+      applyThumb(box, cached, cat);
+      return;
+    }
+
+    if (queuedSet.has(key)) return;
+    queuedSet.add(key);
+    queue.push({ box, key, cat, url: buildFileUrl(rel) });
+    processNext();
+  }
+
+  function observe(el) {
+    if (liteMode) return;
+    if (!observer) {
+      observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            observer.unobserve(entry.target);
+            enqueue(entry.target);
+          }
+        });
+      }, { rootMargin: "160px 0px" });
+    }
+    observer.observe(el);
+  }
+
+  function abortActive() {
+    if (activeImg) { activeImg.onload = activeImg.onerror = null; activeImg.src = ""; activeImg = null; }
+    if (activeVid) {
+      activeVid.onloadedmetadata = activeVid.onseeked = activeVid.onerror = null;
+      try { activeVid.pause(); activeVid.removeAttribute("src"); activeVid.load(); } catch {}
+      activeVid = null;
+    }
+  }
+
+  function reset() {
+    epoch++;
+    queue = [];
+    queuedSet.clear();
+    running = false;
+    abortActive();
+    if (observer) { observer.disconnect(); observer = null; }
+    setStatus("");
+  }
+
+  function pause() {
+    paused = true;
+    abortActive();
+  }
+
+  function resume() {
+    paused = false;
+    processNext();
+  }
+
+  return { observe, reset, pause, resume };
+})();
+
+let moreObserver = null;
+function resetMoreObserver() {
+  if (moreObserver) { moreObserver.disconnect(); moreObserver = null; }
+}
 
 function fmtSize(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
@@ -447,6 +715,8 @@ async function submitPin() {
 }
 
 function lockApp() {
+  ThumbQueue.reset();
+  resetMoreObserver();
   sessionPin = "";
   exitSelectionMode();
   closeActionDialog();
@@ -460,7 +730,7 @@ function lockApp() {
   showPinScreen();
 }
 
-window.addEventListener("pagehide", () => { sessionPin = ""; });
+window.addEventListener("pagehide", () => { ThumbQueue.reset(); sessionPin = ""; });
 window.addEventListener("pageshow", (e) => { if (e.persisted || !sessionPin) lockApp(); });
 
 async function apiFetch(params) {
@@ -554,7 +824,6 @@ async function scanStorage(preferPrimary = true) {
 
   box.innerHTML = partitionsList.map((p, idx) => renderDiskCard(p, idx, false)).join("");
 
-  // Tentukan hardisk terakhir yang aktif/ter-mount
   primaryIdx = -1;
   if (data.lastMounted) {
     primaryIdx = partitionsList.findIndex(p => p.dev === data.lastMounted && p.mounted);
@@ -586,7 +855,19 @@ function openEjectDialog(idx) {
   document.getElementById("ejectOverlay").classList.add("open");
 }
 
-function exitToEject() { exitSelectionMode(); closeActionDialog(); closeViewer(); document.getElementById("fmBody").innerHTML = ""; document.getElementById("viewerBody").innerHTML = ""; document.getElementById("viewFM").style.display = "none"; document.getElementById("viewDashboard").style.display = "block"; scanStorage(true); }
+function exitToEject() {
+  ThumbQueue.reset();
+  resetMoreObserver();
+  exitSelectionMode();
+  closeActionDialog();
+  closeViewer();
+  document.getElementById("fmBody").innerHTML = "";
+  document.getElementById("viewerBody").innerHTML = "";
+  document.getElementById("viewFM").style.display = "none";
+  document.getElementById("viewDashboard").style.display = "block";
+  scanStorage(true);
+}
+
 function openEjectActiveDrive() {
   if (!activeDev) return;
   pendingEjectDev = activeDev;
@@ -603,6 +884,8 @@ async function confirmEjectDisk() {
   const dev = pendingEjectDev;
   closeEjectDialog();
   if (!dev) return;
+  ThumbQueue.reset();
+  resetMoreObserver();
   document.getElementById("fmBody").innerHTML = '<div class="empty">Melepas hardisk...</div>';
   document.getElementById("viewerBody").innerHTML = "";
   await new Promise(r => setTimeout(r, 450));
@@ -637,6 +920,8 @@ function openDriveByIdx(idx) {
 
 function goBack() {
   if (selectionMode) { exitSelectionMode(); return; }
+  ThumbQueue.reset();
+  resetMoreObserver();
   if (currentPath === "") {
     document.getElementById("fmBody").innerHTML = "";
     document.getElementById("viewFM").style.display = "none";
@@ -662,7 +947,17 @@ function setFilter(f, btn) {
   renderFM();
 }
 
+function toggleLiteMode() {
+  liteMode = !liteMode;
+  const btn = document.getElementById("btnLiteMode");
+  btn.classList.toggle("on", liteMode);
+  btn.textContent = liteMode ? "⚡ Mode Ringan: ON" : "⚡ Mode Ringan";
+  renderFM();
+}
+
 async function loadFolder(path) {
+  ThumbQueue.reset();
+  resetMoreObserver();
   exitSelectionMode();
   currentPath = path;
   renderBreadcrumb();
@@ -812,7 +1107,95 @@ function handleFileClick(idx, relEnc) {
   openFileAction(idx);
 }
 
+function buildFileCardHTML(f, idx) {
+  const rel = currentPath ? currentPath + "/" + f.name : f.name;
+  const relEnc = encodeURIComponent(rel);
+  const cat = getCategory(f.name);
+  const ic = getIconType(f.name);
+  const ext = getExt(f.name) || "FILE";
+  const isMedia = (!liteMode && (cat === "photo" || cat === "video"));
+  const tKey = activeDev + "|" + rel + "|" + (f.size || 0);
+  const badge = cat === "video" ? '<div class="vid-badge">▶</div>' : '';
+
+  const thumbAttrs = isMedia
+    ? `data-tkey="${esc(tKey)}" data-tcat="${cat}" data-trel="${relEnc}"`
+    : "";
+
+  return `
+  <div class="file-card" data-rel="${relEnc}"
+    oncontextmenu="event.preventDefault()"
+    onmousedown="startPress(event,'${relEnc}')" onmousemove="movePress(event)" onmouseup="endPress()" onmouseleave="endPress()"
+    ontouchstart="startPress(event,'${relEnc}')" ontouchmove="movePress(event)" ontouchend="endPress()" ontouchcancel="endPress()"
+    onclick="handleFileClick(${idx},'${relEnc}')">
+    <div class="check-badge"></div>
+    <div class="file-thumb" ${thumbAttrs}>
+      <div class="file-icon-box ic-${ic}">${SVG_ICONS[ic]}</div>
+      ${badge}
+    </div>
+    <div class="file-info">
+      <div class="file-name" title="${esc(f.name)}">${esc(f.name)}</div>
+      <div class="file-meta">${esc(ext)} · ${fmtSize(f.size)}</div>
+    </div>
+  </div>`;
+}
+
+function appendFileBatch() {
+  const grid = document.getElementById("fileGrid");
+  const wrap = document.getElementById("loadMoreWrap");
+  if (!grid) return;
+
+  const start = renderedFileCount;
+  const end = Math.min(start + BATCH_SIZE, filteredFiles.length);
+  if (start >= end) {
+    if (wrap) wrap.innerHTML = "";
+    resetMoreObserver();
+    return;
+  }
+
+  let chunk = "";
+  for (let i = start; i < end; i++) {
+    chunk += buildFileCardHTML(filteredFiles[i], i);
+  }
+  grid.insertAdjacentHTML("beforeend", chunk);
+  renderedFileCount = end;
+
+  // Daftarkan elemen media baru ke IntersectionObserver
+  if (!liteMode) {
+    const cards = grid.children;
+    for (let i = start; i < end; i++) {
+      const thumb = cards[i] && cards[i].querySelector(".file-thumb[data-tkey]");
+      if (thumb) ThumbQueue.observe(thumb);
+    }
+  }
+
+  if (wrap) {
+    if (renderedFileCount < filteredFiles.length) {
+      const sisa = filteredFiles.length - renderedFileCount;
+      wrap.innerHTML = `<button class="load-more-btn" onclick="appendFileBatch()">Muat lainnya (${sisa} file tersisa)</button>`;
+      setupMoreObserver(wrap);
+    } else {
+      wrap.innerHTML = "";
+      resetMoreObserver();
+    }
+  }
+  updateSelectionUI();
+}
+
+function setupMoreObserver(el) {
+  resetMoreObserver();
+  moreObserver = new IntersectionObserver((entries) => {
+    if (entries[0] && entries[0].isIntersecting) {
+      appendFileBatch();
+    }
+  }, { rootMargin: "250px 0px" });
+  moreObserver.observe(el);
+}
+
 function renderFM() {
+  ThumbQueue.reset();
+  resetMoreObserver();
+  renderedFileCount = 0;
+
   const q = document.getElementById("searchInput").value.trim().toLowerCase();
   const body = document.getElementById("fmBody");
 
@@ -848,39 +1231,14 @@ function renderFM() {
   }
 
   if (filteredFiles.length > 0) {
-    html += '<div class="sub-label">File (' + filteredFiles.length + ')</div><div class="item-grid">' + filteredFiles.map((f, idx) => {
-      const rel = currentPath ? currentPath + "/" + f.name : f.name;
-      const relEnc = encodeURIComponent(rel);
-      const url = buildFileUrl(rel);
-      const cat = getCategory(f.name);
-      const ic = getIconType(f.name);
-      const ext = getExt(f.name) || "FILE";
-
-      let thumbHtml = `<div class="file-icon-box ic-${ic}">${SVG_ICONS[ic]}</div>`;
-      if (cat === "photo") {
-        thumbHtml = `<img src="${url}" loading="lazy" alt="${esc(f.name)}">`;
-      } else if (cat === "video") {
-        thumbHtml = `<video src="${url}#t=0.5" preload="metadata" muted playsinline></video><div class="vid-badge">▶</div>`;
-      }
-
-      return `
-      <div class="file-card" data-rel="${relEnc}"
-        oncontextmenu="event.preventDefault()"
-        onmousedown="startPress(event,'${relEnc}')" onmousemove="movePress(event)" onmouseup="endPress()" onmouseleave="endPress()"
-        ontouchstart="startPress(event,'${relEnc}')" ontouchmove="movePress(event)" ontouchend="endPress()" ontouchcancel="endPress()"
-        onclick="handleFileClick(${idx},'${relEnc}')">
-        <div class="check-badge"></div>
-        <div class="file-thumb">${thumbHtml}</div>
-        <div class="file-info">
-          <div class="file-name" title="${esc(f.name)}">${esc(f.name)}</div>
-          <div class="file-meta">${esc(ext)} · ${fmtSize(f.size)}</div>
-        </div>
-      </div>`;
-    }).join("") + '</div>';
+    html += `<div class="sub-label"><span>File (${filteredFiles.length})</span><span class="thumb-status" id="thumbStatus"></span></div>`;
+    html += '<div class="item-grid" id="fileGrid"></div>';
+    html += '<div class="load-more-wrap" id="loadMoreWrap"></div>';
   }
 
   body.innerHTML = html;
-  updateSelectionUI();
+  if (filteredFiles.length > 0) appendFileBatch();
+  else updateSelectionUI();
 }
 
 function openFileAction(idx) {
@@ -903,6 +1261,7 @@ function closeActionDialog() { document.getElementById("actionOverlay").classLis
 function viewOriginalFile() {
   if (!selectedFile) return;
   closeActionDialog();
+  ThumbQueue.pause();
 
   previewList = filteredFiles.map(item => {
     const rel = currentPath ? currentPath + "/" + item.name : item.name;
@@ -992,6 +1351,7 @@ function closeViewer() {
   viewer.classList.remove("open", "expanded");
   document.getElementById("btnExpand").textContent = "⛶ Perbesar";
   document.getElementById("viewerBody").innerHTML = "";
+  ThumbQueue.resume();
 }
 
 function openDeleteConfirmFromAction() {
@@ -1038,6 +1398,7 @@ async function executePendingDelete() {
   closeConfirmDialog();
   if (targets.length === 0) return;
 
+  ThumbQueue.pause();
   let errors = [];
   for (const rel of targets) {
     const data = await apiFetch("action=delete&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(rel));
