@@ -40,13 +40,12 @@ Pastikan STB OpenWrt Anda terhubung ke internet dan sudah memiliki paket dasar `
 
 ```sh
 wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/install.sh) && sh /tmp/install.sh && rm -f /tmp/install.sh
+```
 
 3. Ikuti 2 langkah konfirmasi yang muncul di terminal:
    - **Masukkan alamat web hardisk** (contoh: `webhardisk.com` — bebas ketik apa saja berakhiran `.com`, tidak perlu beli domain).
    - **Masukkan PIN akses** (contoh: `123456`).
 4. Tunggu hingga muncul pesan **`INSTALASI SELESAI!`**.
-
----
 
 ## 📖 Cara Pemakaian
 
@@ -59,7 +58,7 @@ wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardis
    - **Tahan klik (*Long Press*)** pada file atau folder untuk menandai banyak item sekaligus.
 5. **Lepas Hardisk dengan Aman:** Sebelum mencabut kabel USB dari STB, klik **⏏️ Keluar Hardisk & Lepaskan** di bar atas, lalu tekan tombol merah **⏏️ Eject Hardisk** di halaman depan dan konfirmasi **Ya, Lepas**.
 
----
+
 
 ## 🗑️ Cara Hapus Semua Proyek (Uninstall)
 
@@ -71,7 +70,7 @@ wget -qO /tmp/uninstall.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardi
 
 Ketik **`y`** lalu tekan Enter saat diminta konfirmasi.
 
----
+
 
 ## 📂 Struktur File Repository
 
