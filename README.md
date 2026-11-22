@@ -25,6 +25,7 @@ Aplikasi web file manager super ringan untuk mengakses dan mengelola Hardisk / S
 ---
 
 ## 📸 Tampilan Aplikasi
+
 | Layar Kunci PIN | Halaman Depan Hardisk | File Manager & Preview |
 | :---: | :---: | :---: |
 | ![Layar PIN](images/pin.png) | ![Dashboard Hardisk](images/dashboard.png) | ![File Manager](images/filemanager.png) |
@@ -47,10 +48,14 @@ wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardis
    - **Masukkan PIN akses** (contoh: `123456`).
 4. Tunggu hingga muncul pesan **`INSTALASI SELESAI!`**.
 
+> **Catatan Pengguna OpenClash:** Setelah instalasi selesai, jalankan `/etc/init.d/openclash restart` jika koneksi internet sempat terputus akibat restart `dnsmasq`.
+
+---
+
 ## 📖 Cara Pemakaian
 
 1. **Hubungkan Perangkat:** Pastikan HP atau laptop terhubung ke WiFi STB OpenWrt. *(Jika domain lokal tidak terbuka di HP, matikan sementara fitur **DNS Pribadi / Private DNS** di pengaturan HP).*
-2. **Buka Aplikasi:** Ketik alamat domain lokal yang Anda buat tadi di browser (misalnya `[http://webhardisk.com](http://webhardisk.com)`), atau melalui alamat IP `[http://192.168.1.1/webssd](http://192.168.1.1/webssd)`.
+2. **Buka Aplikasi:** Ketik alamat domain lokal yang Anda buat tadi di browser (misalnya `http://webhardisk.com`), atau melalui alamat IP `http://192.168.1.1/webssd`.
 3. **Login PIN:** Masukkan PIN Anda untuk membuka halaman depan hardisk aktif.
 4. **Kelola File:**
    - Klik **📂 Buka Hardisk** untuk menjelajah folder, mencari file, atau memilah Foto/Video/File.
@@ -58,19 +63,19 @@ wget -qO /tmp/install.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardis
    - **Tahan klik (*Long Press*)** pada file atau folder untuk menandai banyak item sekaligus.
 5. **Lepas Hardisk dengan Aman:** Sebelum mencabut kabel USB dari STB, klik **⏏️ Keluar Hardisk & Lepaskan** di bar atas, lalu tekan tombol merah **⏏️ Eject Hardisk** di halaman depan dan konfirmasi **Ya, Lepas**.
 
-
+---
 
 ## 🗑️ Cara Hapus Semua Proyek (Uninstall)
 
 Jika Anda ingin menghapus seluruh aplikasi, script auto-mount, domain lokal, dan mengembalikan halaman utama OpenWrt ke LuCI seperti semula, jalankan perintah ini di terminal OpenWrt:
 
 ```sh
-wget -qO /tmp/uninstall.sh https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
+wget -qO /tmp/uninstall.sh [https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh](https://raw.githubusercontent.com/ASHTERSAI/Web-Hardisk-SSD/main/uninstall.sh) && sh /tmp/uninstall.sh && rm -f /tmp/uninstall.sh
 ```
 
 Ketik **`y`** lalu tekan Enter saat diminta konfirmasi.
 
-
+---
 
 ## 📂 Struktur File Repository
 
