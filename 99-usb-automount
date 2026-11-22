@@ -1,0 +1,40 @@
+#!/bin/sh
+
+[ -z "$DEVNAME" ] && DEVNAME=$(basename "$DEVPATH")
+
+case "$DEVNAME" in
+  sd[a-z][0-9]|sd[a-z][0-9][0-9]) ;;
+  *) exit 0 ;;
+esac
+
+DEV="/dev/$DEVNAME"
+MNT="/mnt/usb_$DEVNAME"
+
+if [ "$ACTION" = "add" ]; then
+  # Lewati jika partisi sudah ter-mount
+  grep -q "^$DEV " /proc/mounts && exit 0
+
+  FSTYPE=$(printf ' %s' "$(blkid "$DEV" 2>/dev/null)" | sed -n 's/.* TYPE="\([^"]*\)".*/\1/p')
+  [ -z "$FSTYPE" ] && exit 0
+  [ "$FSTYPE" = "swap" ] && exit 0
+
+  mkdir -p "$MNT"
+  if [ "$FSTYPE" = "ntfs" ]; then
+    if command -v ntfs-3g >/dev/null 2>&1; then
+      ntfs-3g "$DEV" "$MNT" 2>/dev/null
+    else
+      mount -t ntfs3 "$DEV" "$MNT" 2>/dev/null || mount "$DEV" "$MNT" 2>/dev/null
+    fi
+  else
+    mount "$DEV" "$MNT" 2>/dev/null
+  fi
+
+  # Hapus folder jika gagal mount
+  grep -q "^$DEV " /proc/mounts || rmdir "$MNT" 2>/dev/null
+
+elif [ "$ACTION" = "remove" ]; then
+  if grep -q "^$DEV " /proc/mounts; then
+    umount -l "$MNT" 2>/dev/null
+  fi
+  rmdir "$MNT" 2>/dev/null
+fi

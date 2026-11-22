@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>Storage Manager - OpenWrt</title>
+<style>
+  :root {
+    --navy: #0f172a;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --green: #16a34a;
+    --green-bg: #dcfce7;
+    --red: #dc2626;
+    --red-dark: #b91c1c;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+  }
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .app { width: 100%; max-width: 1120px; margin: 0 auto; background: #fff; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 24px rgba(0,0,0,0.05); }
+
+  /* Layar PIN */
+  .pin-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg); }
+  .pin-card { width: 100%; max-width: 360px; background: #fff; border-radius: 20px; padding: 28px 24px; box-shadow: 0 10px 30px rgba(15,23,42,0.08); text-align: center; }
+  .pin-icon { width: 56px; height: 56px; background: var(--blue-bg); color: var(--blue); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 14px; }
+  .pin-card h2 { margin: 0 0 6px; font-size: 20px; }
+  .pin-card p { margin: 0 0 20px; font-size: 13px; color: var(--muted); }
+  .pin-input { width: 100%; padding: 13px 16px; font-size: 18px; letter-spacing: 4px; text-align: center; border: 1.5px solid var(--border); border-radius: 12px; outline: none; margin-bottom: 12px; }
+  .pin-input:focus { border-color: var(--navy); }
+  .pin-error { color: var(--red); font-size: 13px; min-height: 20px; margin-bottom: 8px; }
+
+  /* Header Dashboard */
+  .hero { background: var(--navy); color: #fff; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .hero-title { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 700; margin: 0; }
+  .hero-sub { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+  .hero-right { display: flex; align-items: center; gap: 8px; }
+  .badge-online { background: rgba(22, 163, 74, 0.2); color: #4ade80; font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; }
+  .lock-btn { background: rgba(255,255,255,0.12); color: #fff; border: none; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+  .content { padding: 18px; flex: 1; }
+  .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .section-head h2 { margin: 0; font-size: 17px; }
+  .pill-count { background: var(--green-bg); color: var(--green); font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; }
+
+  /* Kartu Fokus Hardisk Utama */
+  .primary-wrap { max-width: 520px; margin: 12px auto 0; }
+  .disk-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 720px) {
+    .disk-grid { grid-template-columns: repeat(2, 1fr); }
+    .content { padding: 24px; }
+  }
+
+  .disk-card { border: 1px solid var(--border); border-radius: 18px; padding: 18px; background: #fff; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 10px rgba(15,23,42,0.04); }
+  .disk-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .disk-info { display: flex; gap: 12px; align-items: center; min-width: 0; }
+  .disk-icon { font-size: 28px; flex-shrink: 0; }
+  .disk-name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .disk-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .status-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .status-mounted { background: var(--green-bg); color: var(--green); }
+  .status-unmounted { background: #f1f5f9; color: var(--muted); }
+
+  .cap-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 16px; margin-bottom: 6px; }
+  .cap-row span:first-child { color: var(--muted); }
+  .progress { height: 9px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 18px; }
+  .progress-bar { height: 100%; background: var(--green); border-radius: 999px; }
+
+  .btn { width: 100%; padding: 12px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+  .btn:active { opacity: 0.85; }
+  .btn-dark { background: #111827; color: #fff; }
+  .btn-blue { background: var(--blue); color: #fff; }
+  .btn-red { background: var(--red); color: #fff; }
+  .btn-outline-red { background: #fff; color: var(--red); border: 1.5px solid #fca5a5; margin-top: 10px; }
+  .btn-outline { background: #fff; color: var(--text); border: 1.5px solid var(--border); margin-top: 10px; }
+
+  /* File Manager */
+  .fm-wrap { display: flex; flex-direction: column; min-height: 100vh; }
+  .fm-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #fff; z-index: 15; }
+  .fm-left { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 15px; min-width: 0; flex: 1; }
+  .fm-left span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fm-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .eject-top-btn { background: var(--red); color: #fff; border: none; padding: 7px 10px; border-radius: 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(220,38,38,0.25); }
+  .eject-top-btn:active { background: var(--red-dark); }
+  @media (min-width: 540px) {
+    .fm-header { padding: 14px 18px; }
+    .eject-top-btn { padding: 8px 13px; font-size: 12.5px; }
+  }
+
+  .icon-btn { background: none; border: none; font-size: 18px; cursor: pointer; padding: 6px 7px; color: var(--text); border-radius: 8px; flex-shrink: 0; }
+  .icon-btn:hover { background: #f1f5f9; }
+  .search-box { padding: 10px 18px 0; display: none; }
+  .search-box.open { display: block; }
+  .search-box input { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); font-size: 14px; outline: none; }
+  .breadcrumb { padding: 10px 18px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow-x: auto; }
+  .breadcrumb span { cursor: pointer; color: var(--blue); font-weight: 600; }
+
+  .filters { display: flex; gap: 8px; padding: 0 18px 12px; overflow-x: auto; }
+  .filter-btn { background: #f1f5f9; color: #334155; border: none; padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .filter-btn.active { background: var(--navy); color: #fff; }
+
+  .fm-body { padding: 4px 18px 92px; flex: 1; }
+  .sub-label { font-size: 14px; font-weight: 700; margin: 16px 0 10px; color: #334155; }
+
+  .select-bar { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--navy); color: #fff; padding: 12px 16px; z-index: 40; box-shadow: 0 -4px 20px rgba(0,0,0,0.2); }
+  .select-bar.open { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .select-info { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .select-actions { display: flex; gap: 8px; align-items: center; }
+  .sel-btn { border: none; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .sel-btn-all { background: rgba(255,255,255,0.16); color: #fff; }
+  .sel-btn-dl { background: var(--blue); color: #fff; }
+  .sel-btn-del { background: var(--red); color: #fff; }
+  .sel-btn-cancel { background: rgba(255,255,255,0.14); color: #e2e8f0; }
+
+  .item-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (min-width: 540px) { .item-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; } }
+  @media (min-width: 820px) { .item-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; } }
+
+  .folder-card, .file-card { position: relative; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .folder-card { background: var(--blue-bg); border: 2px solid transparent; border-radius: 14px; padding: 16px 8px; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .folder-name { font-size: 12px; font-weight: 600; color: #1e293b; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .file-card { background: #fff; border: 2px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.1s; }
+  .file-card:hover { transform: translateY(-2px); border-color: #cbd5e1; }
+  .file-thumb { aspect-ratio: 1 / 1; width: 100%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .file-thumb img, .file-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .vid-badge { position: absolute; width: 34px; height: 34px; border-radius: 999px; background: rgba(15,23,42,0.72); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; padding-left: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .file-icon-box { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+  .ic-photo { background: #dcfce7; color: #16a34a; }
+  .ic-video { background: #ffedd5; color: #ea580c; }
+  .ic-pdf { background: #fee2e2; color: #dc2626; }
+  .ic-audio { background: #f3e8ff; color: #9333ea; }
+  .ic-file { background: #e2e8f0; color: #475569; }
+  .file-info { padding: 8px; text-align: center; }
+  .file-name { font-size: 12px; font-weight: 600; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; }
+
+  .is-selected { border-color: var(--blue) !important; background: #eff6ff !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+  .check-badge { display: none; position: absolute; top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 999px; border: 2px solid #fff; background: rgba(15,23,42,0.45); color: #fff; font-size: 12px; font-weight: 700; align-items: center; justify-content: center; z-index: 5; }
+  .selecting .check-badge { display: flex; }
+  .is-selected .check-badge { display: flex; background: var(--blue); border-color: #fff; }
+
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.68); z-index: 200; align-items: center; justify-content: center; padding: 18px; }
+  .overlay.open { display: flex; }
+  .dialog { width: 100%; max-width: 380px; background: #fff; border-radius: 20px; padding: 22px; box-shadow: 0 20px 40px rgba(0,0,0,0.25); text-align: center; }
+  .dialog-title { font-size: 16px; font-weight: 700; word-break: break-word; margin: 10px 0 4px; }
+  .dialog-sub { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .dialog-actions { display: flex; flex-direction: column; gap: 10px; }
+  .danger-zone { margin-top: 28px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
+  .dialog-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+
+  .viewer { display: none; position: fixed; inset: 0; background: #000; z-index: 110; flex-direction: column; justify-content: center; align-items: center; }
+  .viewer.open { display: flex; }
+  .viewer-bar { position: fixed; top: 0; left: 0; right: 0; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #fff; background: linear-gradient(rgba(0,0,0,0.85), transparent); z-index: 120; flex-wrap: wrap; }
+  .viewer-title-wrap { min-width: 0; flex: 1; }
+  .viewer-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .viewer-counter { font-size: 11px; color: #cbd5e1; }
+  .viewer-btns { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+  .viewer-btn { background: rgba(255,255,255,0.2); color: #fff; border: none; padding: 7px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; text-decoration: none; cursor: pointer; backdrop-filter: blur(4px); }
+  .viewer-btn-del { background: rgba(220,38,38,0.88); }
+  .viewer-body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 62px 12px 16px; }
+  .viewer-body img, .viewer-body video { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+  .viewer-body iframe { width: 92vw; height: 80vh; border: none; border-radius: 8px; background: #fff; }
+  .viewer.expanded .viewer-body { padding: 0; }
+  .viewer.expanded .viewer-body img, .viewer.expanded .viewer-body video, .viewer.expanded .viewer-body iframe { width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; border-radius: 0; }
+  .other-preview { color: #fff; text-align: center; padding: 24px; max-width: 340px; }
+
+  .nav-arrow { position: fixed; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: none; border-radius: 12px; background: rgba(255,255,255,0.18); color: #fff; font-size: 30px; line-height: 1; cursor: pointer; z-index: 125; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .nav-arrow:active { background: rgba(255,255,255,0.35); }
+  .nav-prev { left: 10px; }
+  .nav-next { right: 10px; }
+
+  .empty { text-align: center; color: var(--muted); padding: 36px 10px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- LAYAR KUNCI PIN -->
+<div id="pinScreen" class="pin-screen">
+  <div class="pin-card">
+    <div class="pin-icon">🔒</div>
+    <h2>Storage Manager</h2>
+    <p>Masukkan PIN untuk mengakses penyimpanan hardisk OpenWrt.</p>
+    <input type="password" id="pinInput" class="pin-input" placeholder="••••••" autocomplete="off" onkeydown="if(event.key==='Enter') submitPin()">
+    <div id="pinError" class="pin-error"></div>
+    <button class="btn btn-dark" onclick="submitPin()">Buka Kunci</button>
+  </div>
+</div>
+
+<!-- APLIKASI UTAMA -->
+<div id="mainApp" class="app" style="display:none;">
+
+  <!-- VIEW 1: HALAMAN DEPAN HARDISK & PENYIMPANAN LAINNYA -->
+  <div id="viewDashboard">
+    <div class="hero">
+      <div>
+        <div class="hero-title">💾 Storage Manager</div>
+        <div class="hero-sub">OpenWrt USB Storage Management</div>
+      </div>
+      <div class="hero-right">
+        <span class="badge-online">Online</span>
+        <button class="lock-btn" onclick="lockApp()">🔒 Kunci</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- MODE FOKUS HARDISK UTAMA -->
+      <div id="primaryDiskSection" class="primary-wrap" style="display:none;">
+        <div class="section-head">
+          <h2>Hardisk Aktif</h2>
+          <span class="pill-count">Siap Digunakan</span>
+        </div>
+        <div id="primaryDiskCard"></div>
+        <button class="btn btn-outline" style="margin-top:16px;" onclick="showAllStorage()">
+          🔍 Cek Penyimpanan Lainnya
+        </button>
+      </div>
+
+      <!-- MODE DAFTAR SEMUA PENYIMPANAN -->
+      <div id="allStorageSection" style="display:none;">
+        <div class="section-head">
+          <h2>Semua Penyimpanan</h2>
+          <span class="pill-count" id="partCount">Memindai...</span>
+        </div>
+        <div id="diskList" class="disk-grid"></div>
+        <div style="max-width:340px; margin: 18px auto 0; display:flex; flex-direction:column; gap:8px;">
+          <button class="btn btn-dark" onclick="scanStorage(false)">🔄 Scan Penyimpanan</button>
+          <button id="btnBackToPrimary" class="btn btn-outline" style="margin-top:0; display:none;" onclick="showPrimaryStorage()">← Kembali ke Hardisk Utama</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 2: FILE MANAGER -->
+  <div id="viewFM" class="fm-wrap" style="display:none;">
+    <div class="fm-header">
+      <div class="fm-left">
+        <button class="icon-btn" onclick="goBack()" title="Kembali">←</button>
+        <span id="fmTitle">HARDISK</span>
+      </div>
+      <div class="fm-right">
+        <button class="eject-top-btn" onclick="exitToEject()" title="Keluar Hardisk dan Lepaskan">⏏️ Keluar Hardisk & Lepaskan</button>
+        <button class="icon-btn" onclick="toggleSearch()" title="Cari">🔍</button>
+        <button class="icon-btn" onclick="lockApp()" title="Kunci">🔒</button>
+      </div>
+    </div>
+
+    <div class="search-box" id="searchBox">
+      <input type="text" id="searchInput" placeholder="Cari file atau folder..." oninput="renderFM()">
+    </div>
+
+    <div class="breadcrumb" id="breadcrumb"></div>
+
+    <div class="filters">
+      <button class="filter-btn active" onclick="setFilter('all', this)">Semua</button>
+      <button class="filter-btn" onclick="setFilter('photo', this)">🖼️ Foto</button>
+      <button class="filter-btn" onclick="setFilter('video', this)">🎬 Video</button>
+      <button class="filter-btn" onclick="setFilter('file', this)">📄 File</button>
+    </div>
+
+    <div class="fm-body" id="fmBody"></div>
+  </div>
+
+</div>
+
+<!-- BILAH AKSI MODE PILIH (TAHAN KLIK) -->
+<div class="select-bar" id="selectBar">
+  <div class="select-info">
+    <span id="selectCount">0 dipilih</span>
+    <button class="sel-btn sel-btn-all" onclick="toggleSelectAll()">Pilih Semua</button>
+  </div>
+  <div class="select-actions">
+    <button class="sel-btn sel-btn-dl" onclick="downloadSelected()">⬇️ Download</button>
+    <button class="sel-btn sel-btn-del" onclick="openBatchDeleteConfirm()">🗑️ Hapus</button>
+    <button class="sel-btn sel-btn-cancel" onclick="exitSelectionMode()">Batal</button>
+  </div>
+</div>
+
+<!-- DIALOG AKSI FILE -->
+<div class="overlay" id="actionOverlay" onclick="if(event.target===this) closeActionDialog()">
+  <div class="dialog">
+    <div id="actionIcon" style="display:inline-flex;"></div>
+    <div class="dialog-title" id="actionName"></div>
+    <div class="dialog-sub" id="actionMeta"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-blue" onclick="viewOriginalFile()">👁️ Tampilkan File Asli</button>
+      <a class="btn btn-dark" id="actionDownload" href="#" download>⬇️ Download</a>
+      <button class="btn btn-outline" style="margin-top:0;" onclick="closeActionDialog()">Batal</button>
+    </div>
+    <div class="danger-zone">
+      <button class="btn btn-outline-red" style="margin-top:0;" onclick="openDeleteConfirmFromAction()">🗑️ Hapus File</button>
+    </div>
+  </div>
+</div>
+
+<!-- DIALOG KONFIRMASI HAPUS -->
+<div class="overlay" id="confirmOverlay" onclick="if(event.target===this) closeConfirmDialog()">
+  <div class="dialog">
+    <div style="font-size:38px;">⚠️</div>
+    <div class="dialog-title" id="confirmTitle">Apakah benar Anda ingin menghapus file ini?</div>
+    <div class="dialog-sub" id="confirmFileName"></div>
+    <div class="dialog-row">
+      <button class="btn btn-outline" style="margin-top:0;" onclick="closeConfirmDialog()">Batal</button>
+      <button class="btn btn-red" onclick="executePendingDelete()">Ya, Hapus</button>
+    </div>
+  </div>
+</div>
+
+<!-- DIALOG KONFIRMASI EJECT HARDISK -->
+<div class="overlay" id="ejectOverlay" onclick="if(event.target===this) closeEjectDialog()">
+  <div class="dialog">
+    <div style="font-size:38px;">⏏️</div>
+    <div class="dialog-title">Yakin Anda ingin Lepas Hardisk?</div>
+    <div class="dialog-sub" id="ejectDiskName"></div>
+    <div class="dialog-row">
+      <button class="btn btn-outline" style="margin-top:0;" onclick="closeEjectDialog()">Batal</button>
+      <button class="btn btn-red" onclick="confirmEjectDisk()">Ya, Lepas</button>
+    </div>
+  </div>
+</div>
+
+<!-- VIEWER PREVIEW -->
+<div class="viewer" id="viewer">
+  <div class="viewer-bar">
+    <div class="viewer-title-wrap">
+      <div class="viewer-title" id="viewerTitle"></div>
+      <div class="viewer-counter" id="viewerCounter"></div>
+    </div>
+    <div class="viewer-btns">
+      <button class="viewer-btn viewer-btn-del" onclick="openDeleteConfirmFromViewer()">🗑️ Hapus</button>
+      <button class="viewer-btn" id="btnExpand" onclick="toggleFullscreen()">⛶ Perbesar</button>
+      <a class="viewer-btn" id="viewerDownload" href="#" download>⬇️ Unduh</a>
+      <button class="viewer-btn" onclick="closeViewer()">✕</button>
+    </div>
+  </div>
+  <button class="nav-arrow nav-prev" id="navPrev" onclick="stepMedia(-1)" aria-label="Sebelumnya">‹</button>
+  <button class="nav-arrow nav-next" id="navNext" onclick="stepMedia(1)" aria-label="Berikutnya">›</button>
+  <div class="viewer-body" id="viewerBody"></div>
+</div>
+
+<script>
+const API = "/cgi-bin/storage-api";
+let sessionPin = "";
+let partitionsList = [];
+let primaryIdx = -1;
+let pendingEjectDev = "";
+let activeDev = "";
+let activeLabel = "";
+let currentPath = "";
+let currentItems = [];
+let filteredFolders = [];
+let filteredFiles = [];
+let previewList = [];
+let currentPreviewIdx = -1;
+let selectedFile = null;
+let currentFilter = "all";
+let touchStartX = 0;
+
+let selectionMode = false;
+let selectedPaths = new Set();
+let pressTimer = null;
+let longPressTriggered = false;
+let pressStartX = 0;
+let pressStartY = 0;
+
+let pendingDeleteTargets = [];
+let pendingDeleteSource = "";
+
+document.cookie = "storage_pin=; Path=/; Max-Age=0";
+
+const SVG_ICONS = {
+  folder: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  photo: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  video: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+  pdf: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
+  audio: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+  file: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>'
+};
+
+function fmtSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), u.length - 1);
+  return (bytes / Math.pow(1024, i)).toFixed(i >= 3 ? 1 : 0) + " " + u[i];
+}
+
+function getExt(name) {
+  const parts = name.split(".");
+  return parts.length > 1 ? parts.pop().toLowerCase() : "";
+}
+
+function getCategory(name) {
+  const ext = getExt(name);
+  if (["jpg","jpeg","png","gif","webp","bmp","svg"].includes(ext)) return "photo";
+  if (["mp4","mkv","webm","mov","avi","m4v","3gp"].includes(ext)) return "video";
+  return "file";
+}
+
+function getIconType(name) {
+  const cat = getCategory(name);
+  if (cat === "photo" || cat === "video") return cat;
+  const ext = getExt(name);
+  if (ext === "pdf") return "pdf";
+  if (["mp3","wav","ogg","flac","m4a"].includes(ext)) return "audio";
+  return "file";
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function buildFileUrl(rel) {
+  return API + "?action=file&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(rel) + "&pin=" + encodeURIComponent(sessionPin);
+}
+
+function showPinScreen() {
+  document.getElementById("mainApp").style.display = "none";
+  document.getElementById("pinScreen").style.display = "flex";
+  document.getElementById("pinInput").value = "";
+  document.getElementById("pinError").textContent = "";
+  setTimeout(() => document.getElementById("pinInput").focus(), 100);
+}
+
+function showMainApp() {
+  document.getElementById("pinScreen").style.display = "none";
+  document.getElementById("mainApp").style.display = "flex";
+}
+
+async function submitPin() {
+  const pin = document.getElementById("pinInput").value.trim();
+  if (!pin) return;
+  const res = await fetch(API + "?action=login&pin=" + encodeURIComponent(pin), { cache: "no-store" });
+  const data = await res.json();
+  if (data.ok) {
+    sessionPin = pin;
+    showMainApp();
+    scanStorage(true);
+  } else {
+    document.getElementById("pinError").textContent = data.msg || "PIN salah";
+    document.getElementById("pinInput").select();
+  }
+}
+
+function lockApp() {
+  sessionPin = "";
+  exitSelectionMode();
+  closeActionDialog();
+  closeConfirmDialog();
+  closeEjectDialog();
+  closeViewer();
+  document.getElementById("viewFM").style.display = "none";
+  document.getElementById("viewDashboard").style.display = "block";
+  document.getElementById("diskList").innerHTML = "";
+  document.getElementById("fmBody").innerHTML = "";
+  showPinScreen();
+}
+
+window.addEventListener("pagehide", () => { sessionPin = ""; });
+window.addEventListener("pageshow", (e) => { if (e.persisted || !sessionPin) lockApp(); });
+
+async function apiFetch(params) {
+  if (!sessionPin) { lockApp(); return null; }
+  const res = await fetch(API + "?" + params + "&pin=" + encodeURIComponent(sessionPin), { cache: "no-store" });
+  if (res.status === 401) { lockApp(); return null; }
+  const d = await res.json();
+  if (d && d.auth === false) { lockApp(); return null; }
+  return d;
+}
+
+function renderDiskCard(p, idx, isPrimary) {
+  const totalB = p.totalKB * 1024;
+  const usedB = p.usedKB * 1024;
+  const pct = totalB > 0 ? Math.min(100, Math.round((usedB / totalB) * 100)) : 0;
+
+  if (p.mounted) {
+    return `
+    <div class="disk-card">
+      <div>
+        <div class="disk-top">
+          <div class="disk-info">
+            <div class="disk-icon">🖴</div>
+            <div style="min-width:0;">
+              <div class="disk-name">${esc(p.label)}</div>
+              <div class="disk-meta">${esc(p.fs.toUpperCase())} · ${esc(p.path)}</div>
+            </div>
+          </div>
+          <span class="status-pill status-mounted">Mounted</span>
+        </div>
+        <div class="cap-row">
+          <span>Kapasitas terpakai</span>
+          <strong>${fmtSize(usedB)} / ${fmtSize(totalB)}</strong>
+        </div>
+        <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
+      </div>
+      <div>
+        <button class="btn btn-dark" onclick="openDriveByIdx(${idx})">📂 Buka Hardisk</button>
+        <button class="btn ${isPrimary ? 'btn-red' : 'btn-outline-red'}" style="margin-top:10px;" onclick="openEjectDialog(${idx})">⏏️ Eject Hardisk</button>
+      </div>
+    </div>`;
+  } else {
+    return `
+    <div class="disk-card">
+      <div class="disk-top">
+        <div class="disk-info">
+          <div class="disk-icon">🖴</div>
+          <div style="min-width:0;">
+            <div class="disk-name">${esc(p.label)}</div>
+            <div class="disk-meta">${esc(p.fs.toUpperCase())} · ${esc(p.path)} · ${fmtSize(totalB)}</div>
+          </div>
+        </div>
+        <span class="status-pill status-unmounted">Unmounted</span>
+      </div>
+      <button class="btn btn-outline" onclick="mountDrive('${esc(p.dev)}')">Mount Penyimpanan</button>
+    </div>`;
+  }
+}
+
+function showPrimaryStorage() {
+  if (primaryIdx === -1 || !partitionsList[primaryIdx]) {
+    showAllStorage();
+    return;
+  }
+  document.getElementById("primaryDiskCard").innerHTML = renderDiskCard(partitionsList[primaryIdx], primaryIdx, true);
+  document.getElementById("allStorageSection").style.display = "none";
+  document.getElementById("primaryDiskSection").style.display = "block";
+}
+
+function showAllStorage() {
+  document.getElementById("primaryDiskSection").style.display = "none";
+  document.getElementById("allStorageSection").style.display = "block";
+  document.getElementById("btnBackToPrimary").style.display = (primaryIdx !== -1) ? "flex" : "none";
+}
+
+async function scanStorage(preferPrimary = true) {
+  document.getElementById("partCount").textContent = "Memindai...";
+  const data = await apiFetch("action=scan");
+  if (!data) return;
+
+  partitionsList = data.partitions || [];
+  document.getElementById("partCount").textContent = partitionsList.length + " partisi ditemukan";
+  const box = document.getElementById("diskList");
+
+  if (partitionsList.length === 0) {
+    primaryIdx = -1;
+    box.innerHTML = '<div class="empty" style="grid-column:1/-1;">Tidak ada hardisk atau flashdisk USB yang terdeteksi.</div>';
+    showAllStorage();
+    return;
+  }
+
+  box.innerHTML = partitionsList.map((p, idx) => renderDiskCard(p, idx, false)).join("");
+
+  // Tentukan hardisk terakhir yang aktif/ter-mount
+  primaryIdx = -1;
+  if (data.lastMounted) {
+    primaryIdx = partitionsList.findIndex(p => p.dev === data.lastMounted && p.mounted);
+  }
+  if (primaryIdx === -1) {
+    for (let i = partitionsList.length - 1; i >= 0; i--) {
+      if (partitionsList[i].mounted) { primaryIdx = i; break; }
+    }
+  }
+
+  if (preferPrimary && primaryIdx !== -1) {
+    showPrimaryStorage();
+  } else {
+    showAllStorage();
+  }
+}
+
+async function mountDrive(dev) {
+  const data = await apiFetch("action=mount&dev=" + encodeURIComponent(dev));
+  if (data && !data.ok) alert(data.msg);
+  scanStorage(true);
+}
+
+function openEjectDialog(idx) {
+  const p = partitionsList[idx];
+  if (!p) return;
+  pendingEjectDev = p.dev;
+  document.getElementById("ejectDiskName").textContent = p.label + " (" + p.path + ")";
+  document.getElementById("ejectOverlay").classList.add("open");
+}
+
+function exitToEject() { exitSelectionMode(); closeActionDialog(); closeViewer(); document.getElementById("fmBody").innerHTML = ""; document.getElementById("viewerBody").innerHTML = ""; document.getElementById("viewFM").style.display = "none"; document.getElementById("viewDashboard").style.display = "block"; scanStorage(true); }
+function openEjectActiveDrive() {
+  if (!activeDev) return;
+  pendingEjectDev = activeDev;
+  document.getElementById("ejectDiskName").textContent = activeLabel + " (/dev/" + activeDev + ")";
+  document.getElementById("ejectOverlay").classList.add("open");
+}
+
+function closeEjectDialog() {
+  document.getElementById("ejectOverlay").classList.remove("open");
+  pendingEjectDev = "";
+}
+
+async function confirmEjectDisk() {
+  const dev = pendingEjectDev;
+  closeEjectDialog();
+  if (!dev) return;
+  document.getElementById("fmBody").innerHTML = '<div class="empty">Melepas hardisk...</div>';
+  document.getElementById("viewerBody").innerHTML = "";
+  await new Promise(r => setTimeout(r, 450));
+
+  const data = await apiFetch("action=unmount&dev=" + encodeURIComponent(dev));
+  if (data) alert(data.msg);
+  if (data && data.ok && dev === activeDev) {
+    exitSelectionMode();
+    document.getElementById("viewFM").style.display = "none";
+    document.getElementById("viewDashboard").style.display = "block";
+    activeDev = "";
+  }
+  scanStorage(true);
+}
+
+function openDriveByIdx(idx) {
+  const p = partitionsList[idx];
+  if (!p) return;
+  exitSelectionMode();
+  activeDev = p.dev;
+  activeLabel = p.label;
+  currentPath = "";
+  currentFilter = "all";
+  document.getElementById("fmTitle").textContent = p.label;
+  document.getElementById("searchInput").value = "";
+  document.getElementById("searchBox").classList.remove("open");
+  document.querySelectorAll(".filter-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
+  document.getElementById("viewDashboard").style.display = "none";
+  document.getElementById("viewFM").style.display = "flex";
+  loadFolder("");
+}
+
+function goBack() {
+  if (selectionMode) { exitSelectionMode(); return; }
+  if (currentPath === "") {
+    document.getElementById("fmBody").innerHTML = "";
+    document.getElementById("viewFM").style.display = "none";
+    document.getElementById("viewDashboard").style.display = "block";
+    scanStorage(true);
+  } else {
+    const parts = currentPath.split("/");
+    parts.pop();
+    loadFolder(parts.join("/"));
+  }
+}
+
+function toggleSearch() {
+  const box = document.getElementById("searchBox");
+  box.classList.toggle("open");
+  if (box.classList.contains("open")) document.getElementById("searchInput").focus();
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderFM();
+}
+
+async function loadFolder(path) {
+  exitSelectionMode();
+  currentPath = path;
+  renderBreadcrumb();
+  document.getElementById("fmBody").innerHTML = '<div class="empty">Memuat...</div>';
+  const data = await apiFetch("action=list&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(path));
+  if (!data) return;
+  if (!data.ok) {
+    document.getElementById("fmBody").innerHTML = '<div class="empty">' + esc(data.msg) + '</div>';
+    return;
+  }
+  currentItems = data.items || [];
+  renderFM();
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById("breadcrumb");
+  let html = `/ <span onclick="loadFolder('')">${esc(activeLabel)}</span> / `;
+  if (currentPath) {
+    let acc = "";
+    currentPath.split("/").forEach(p => {
+      acc = acc ? acc + "/" + p : p;
+      const target = acc;
+      html += `<span onclick="loadFolder(decodeURIComponent('${encodeURIComponent(target)}'))">${esc(p)}</span> / `;
+    });
+  }
+  bc.innerHTML = html;
+}
+
+function startPress(e, relEnc) {
+  clearTimeout(pressTimer);
+  longPressTriggered = false;
+  const pt = e.touches ? e.touches[0] : e;
+  pressStartX = pt.clientX;
+  pressStartY = pt.clientY;
+  const rel = decodeURIComponent(relEnc);
+  pressTimer = setTimeout(() => {
+    longPressTriggered = true;
+    selectionMode = true;
+    selectedPaths.add(rel);
+    if (navigator.vibrate) navigator.vibrate(25);
+    updateSelectionUI();
+  }, 450);
+}
+
+function movePress(e) {
+  if (!pressTimer) return;
+  const pt = e.touches ? e.touches[0] : e;
+  if (Math.abs(pt.clientX - pressStartX) > 10 || Math.abs(pt.clientY - pressStartY) > 10) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+}
+
+function endPress() { clearTimeout(pressTimer); pressTimer = null; }
+
+function toggleSelectPath(rel) {
+  if (selectedPaths.has(rel)) selectedPaths.delete(rel);
+  else selectedPaths.add(rel);
+  if (selectedPaths.size === 0) selectionMode = false;
+  updateSelectionUI();
+}
+
+function toggleSelectAll() {
+  const allRels = [
+    ...filteredFolders.map(f => currentPath ? currentPath + "/" + f.name : f.name),
+    ...filteredFiles.map(f => currentPath ? currentPath + "/" + f.name : f.name)
+  ];
+  if (selectedPaths.size === allRels.length) {
+    selectedPaths.clear();
+    selectionMode = false;
+  } else {
+    selectionMode = true;
+    allRels.forEach(r => selectedPaths.add(r));
+  }
+  updateSelectionUI();
+}
+
+function exitSelectionMode() {
+  selectionMode = false;
+  selectedPaths.clear();
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  const bar = document.getElementById("selectBar");
+  const body = document.getElementById("fmBody");
+  if (selectionMode && selectedPaths.size > 0) {
+    bar.classList.add("open");
+    body.classList.add("selecting");
+    document.getElementById("selectCount").textContent = selectedPaths.size + " dipilih";
+  } else {
+    bar.classList.remove("open");
+    body.classList.remove("selecting");
+  }
+  document.querySelectorAll("[data-rel]").forEach(el => {
+    const rel = decodeURIComponent(el.getAttribute("data-rel"));
+    const isSel = selectedPaths.has(rel);
+    el.classList.toggle("is-selected", isSel);
+    const badge = el.querySelector(".check-badge");
+    if (badge) badge.textContent = isSel ? "✓" : "";
+  });
+}
+
+function downloadSelected() {
+  const fileRels = [];
+  let folderCount = 0;
+  selectedPaths.forEach(rel => {
+    const name = rel.split("/").pop();
+    const isFolder = filteredFolders.some(f => (currentPath ? currentPath + "/" + f.name : f.name) === rel);
+    if (isFolder) folderCount++;
+    else fileRels.push({ rel, name });
+  });
+
+  if (fileRels.length === 0) {
+    alert("Folder tidak bisa diunduh langsung. Tandai file, foto, atau video untuk mengunduh.");
+    return;
+  }
+  if (folderCount > 0) {
+    alert("Mengunduh " + fileRels.length + " file. (" + folderCount + " folder dilewati).");
+  }
+
+  fileRels.forEach((item, i) => {
+    setTimeout(() => {
+      const a = document.createElement("a");
+      a.href = buildFileUrl(item.rel) + "&download=1";
+      a.download = item.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, i * 350);
+  });
+  exitSelectionMode();
+}
+
+function handleFolderClick(idx, relEnc) {
+  if (longPressTriggered) { longPressTriggered = false; return; }
+  const rel = decodeURIComponent(relEnc);
+  if (selectionMode) { toggleSelectPath(rel); return; }
+  const f = filteredFolders[idx];
+  if (f) loadFolder(rel);
+}
+
+function handleFileClick(idx, relEnc) {
+  if (longPressTriggered) { longPressTriggered = false; return; }
+  const rel = decodeURIComponent(relEnc);
+  if (selectionMode) { toggleSelectPath(rel); return; }
+  openFileAction(idx);
+}
+
+function renderFM() {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const body = document.getElementById("fmBody");
+
+  filteredFolders = currentItems.filter(i => i.isDir && i.name.toLowerCase().includes(q));
+  filteredFiles = currentItems.filter(i => {
+    if (i.isDir) return false;
+    if (!i.name.toLowerCase().includes(q)) return false;
+    if (currentFilter === "all") return true;
+    return getCategory(i.name) === currentFilter;
+  });
+
+  if (filteredFolders.length === 0 && filteredFiles.length === 0) {
+    body.innerHTML = '<div class="empty">Tidak ada folder atau file yang cocok.</div>';
+    return;
+  }
+
+  let html = "";
+  if (filteredFolders.length > 0) {
+    html += '<div class="item-grid">' + filteredFolders.map((f, idx) => {
+      const rel = currentPath ? currentPath + "/" + f.name : f.name;
+      const relEnc = encodeURIComponent(rel);
+      return `
+      <div class="folder-card" data-rel="${relEnc}"
+        oncontextmenu="event.preventDefault()"
+        onmousedown="startPress(event,'${relEnc}')" onmousemove="movePress(event)" onmouseup="endPress()" onmouseleave="endPress()"
+        ontouchstart="startPress(event,'${relEnc}')" ontouchmove="movePress(event)" ontouchend="endPress()" ontouchcancel="endPress()"
+        onclick="handleFolderClick(${idx},'${relEnc}')">
+        <div class="check-badge"></div>
+        ${SVG_ICONS.folder}
+        <div class="folder-name" title="${esc(f.name)}">${esc(f.name)}</div>
+      </div>`;
+    }).join("") + '</div>';
+  }
+
+  if (filteredFiles.length > 0) {
+    html += '<div class="sub-label">File (' + filteredFiles.length + ')</div><div class="item-grid">' + filteredFiles.map((f, idx) => {
+      const rel = currentPath ? currentPath + "/" + f.name : f.name;
+      const relEnc = encodeURIComponent(rel);
+      const url = buildFileUrl(rel);
+      const cat = getCategory(f.name);
+      const ic = getIconType(f.name);
+      const ext = getExt(f.name) || "FILE";
+
+      let thumbHtml = `<div class="file-icon-box ic-${ic}">${SVG_ICONS[ic]}</div>`;
+      if (cat === "photo") {
+        thumbHtml = `<img src="${url}" loading="lazy" alt="${esc(f.name)}">`;
+      } else if (cat === "video") {
+        thumbHtml = `<video src="${url}#t=0.5" preload="metadata" muted playsinline></video><div class="vid-badge">▶</div>`;
+      }
+
+      return `
+      <div class="file-card" data-rel="${relEnc}"
+        oncontextmenu="event.preventDefault()"
+        onmousedown="startPress(event,'${relEnc}')" onmousemove="movePress(event)" onmouseup="endPress()" onmouseleave="endPress()"
+        ontouchstart="startPress(event,'${relEnc}')" ontouchmove="movePress(event)" ontouchend="endPress()" ontouchcancel="endPress()"
+        onclick="handleFileClick(${idx},'${relEnc}')">
+        <div class="check-badge"></div>
+        <div class="file-thumb">${thumbHtml}</div>
+        <div class="file-info">
+          <div class="file-name" title="${esc(f.name)}">${esc(f.name)}</div>
+          <div class="file-meta">${esc(ext)} · ${fmtSize(f.size)}</div>
+        </div>
+      </div>`;
+    }).join("") + '</div>';
+  }
+
+  body.innerHTML = html;
+  updateSelectionUI();
+}
+
+function openFileAction(idx) {
+  const f = filteredFiles[idx];
+  if (!f) return;
+  const rel = currentPath ? currentPath + "/" + f.name : f.name;
+  const url = buildFileUrl(rel);
+  const ic = getIconType(f.name);
+  selectedFile = { name: f.name, rel, url, size: f.size, cat: getCategory(f.name), ext: getExt(f.name) };
+
+  document.getElementById("actionIcon").innerHTML = `<div class="file-icon-box ic-${ic}" style="margin:0;">${SVG_ICONS[ic]}</div>`;
+  document.getElementById("actionName").textContent = f.name;
+  document.getElementById("actionMeta").textContent = (selectedFile.ext.toUpperCase() || "FILE") + " · " + fmtSize(f.size);
+  document.getElementById("actionDownload").href = url + "&download=1";
+  document.getElementById("actionOverlay").classList.add("open");
+}
+
+function closeActionDialog() { document.getElementById("actionOverlay").classList.remove("open"); }
+
+function viewOriginalFile() {
+  if (!selectedFile) return;
+  closeActionDialog();
+
+  previewList = filteredFiles.map(item => {
+    const rel = currentPath ? currentPath + "/" + item.name : item.name;
+    return { name: item.name, rel, url: buildFileUrl(rel), size: item.size, cat: getCategory(item.name), ext: getExt(item.name) };
+  });
+  currentPreviewIdx = previewList.findIndex(m => m.rel === selectedFile.rel);
+  if (currentPreviewIdx < 0) currentPreviewIdx = 0;
+
+  document.getElementById("viewer").classList.add("open");
+  renderViewerMedia();
+}
+
+function renderViewerMedia() {
+  const m = previewList[currentPreviewIdx];
+  if (!m) { closeViewer(); return; }
+  document.getElementById("viewerTitle").textContent = m.name;
+  document.getElementById("viewerCounter").textContent = (currentPreviewIdx + 1) + " / " + previewList.length;
+  document.getElementById("viewerDownload").href = m.url + "&download=1";
+  document.getElementById("navPrev").style.display = previewList.length > 1 ? "flex" : "none";
+  document.getElementById("navNext").style.display = previewList.length > 1 ? "flex" : "none";
+
+  const body = document.getElementById("viewerBody");
+  if (m.cat === "photo") {
+    body.innerHTML = `<img src="${m.url}" alt="${esc(m.name)}">`;
+  } else if (m.cat === "video") {
+    body.innerHTML = `<video src="${m.url}" controls autoplay playsinline></video>`;
+  } else if (["pdf","txt","log","csv"].includes(m.ext)) {
+    body.innerHTML = `<iframe src="${m.url}" title="${esc(m.name)}"></iframe>`;
+  } else if (["mp3","wav","ogg","m4a"].includes(m.ext)) {
+    body.innerHTML = `<div class="other-preview"><div style="font-size:56px;margin-bottom:14px;">🎵</div><div style="margin-bottom:16px;font-weight:600;">${esc(m.name)}</div><audio src="${m.url}" controls autoplay style="width:100%;"></audio></div>`;
+  } else {
+    body.innerHTML = `<div class="other-preview"><div style="font-size:56px;margin-bottom:12px;">📄</div><div style="font-weight:700;margin-bottom:6px;">${esc(m.name)}</div><div style="font-size:13px;color:#cbd5e1;margin-bottom:16px;">${(m.ext || "FILE").toUpperCase()} · ${fmtSize(m.size)}</div><div style="font-size:12px;color:#94a3b8;">Preview langsung tidak didukung browser untuk format ini. Gunakan tombol Unduh di atas.</div></div>`;
+  }
+}
+
+function stepMedia(dir) {
+  if (previewList.length <= 1) return;
+  currentPreviewIdx = (currentPreviewIdx + dir + previewList.length) % previewList.length;
+  renderViewerMedia();
+}
+
+function toggleFullscreen() {
+  const viewer = document.getElementById("viewer");
+  const btn = document.getElementById("btnExpand");
+  const isExpanded = viewer.classList.toggle("expanded");
+  btn.textContent = isExpanded ? "🗗 Perkecil" : "⛶ Perbesar";
+
+  if (isExpanded) {
+    if (viewer.requestFullscreen) viewer.requestFullscreen().catch(() => {});
+    else if (viewer.webkitRequestFullscreen) viewer.webkitRequestFullscreen();
+  } else {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+}
+
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) {
+    document.getElementById("viewer").classList.remove("expanded");
+    document.getElementById("btnExpand").textContent = "⛶ Perbesar";
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!document.getElementById("viewer").classList.contains("open")) return;
+  if (document.getElementById("confirmOverlay").classList.contains("open")) return;
+  if (e.key === "ArrowRight") stepMedia(1);
+  else if (e.key === "ArrowLeft") stepMedia(-1);
+  else if (e.key === "Escape") closeViewer();
+});
+
+const viewerEl = document.getElementById("viewer");
+viewerEl.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) touchStartX = e.touches[0].clientX;
+}, { passive: true });
+viewerEl.addEventListener("touchend", (e) => {
+  if (!touchStartX || e.changedTouches.length !== 1) return;
+  const diff = e.changedTouches[0].clientX - touchStartX;
+  touchStartX = 0;
+  if (Math.abs(diff) > 55) stepMedia(diff < 0 ? 1 : -1);
+}, { passive: true });
+
+function closeViewer() {
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+  const viewer = document.getElementById("viewer");
+  viewer.classList.remove("open", "expanded");
+  document.getElementById("btnExpand").textContent = "⛶ Perbesar";
+  document.getElementById("viewerBody").innerHTML = "";
+}
+
+function openDeleteConfirmFromAction() {
+  if (!selectedFile) return;
+  closeActionDialog();
+  pendingDeleteTargets = [selectedFile.rel];
+  pendingDeleteSource = "action";
+  document.getElementById("confirmTitle").textContent = "Apakah benar Anda ingin menghapus file ini?";
+  document.getElementById("confirmFileName").textContent = selectedFile.name;
+  document.getElementById("confirmOverlay").classList.add("open");
+}
+
+function openDeleteConfirmFromViewer() {
+  const m = previewList[currentPreviewIdx];
+  if (!m) return;
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+  pendingDeleteTargets = [m.rel];
+  pendingDeleteSource = "viewer";
+  document.getElementById("confirmTitle").textContent = "Apakah benar Anda ingin menghapus file ini?";
+  document.getElementById("confirmFileName").textContent = m.name;
+  document.getElementById("confirmOverlay").classList.add("open");
+}
+
+function openBatchDeleteConfirm() {
+  if (selectedPaths.size === 0) return;
+  pendingDeleteTargets = Array.from(selectedPaths);
+  pendingDeleteSource = "batch";
+  document.getElementById("confirmTitle").textContent = "Apakah benar Anda ingin menghapus " + pendingDeleteTargets.length + " item yang ditandai?";
+  document.getElementById("confirmFileName").textContent = pendingDeleteTargets.map(p => p.split("/").pop()).slice(0, 4).join(", ") + (pendingDeleteTargets.length > 4 ? ", ..." : "");
+  document.getElementById("confirmOverlay").classList.add("open");
+}
+
+function closeConfirmDialog() {
+  document.getElementById("confirmOverlay").classList.remove("open");
+  pendingDeleteTargets = [];
+  pendingDeleteSource = "";
+}
+
+async function executePendingDelete() {
+  const targets = pendingDeleteTargets.slice();
+  const source = pendingDeleteSource;
+  closeConfirmDialog();
+  if (targets.length === 0) return;
+
+  let errors = [];
+  for (const rel of targets) {
+    const data = await apiFetch("action=delete&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(rel));
+    if (!data) return;
+    if (!data.ok) errors.push(rel.split("/").pop() + ": " + data.msg);
+  }
+  if (errors.length > 0) alert("Sebagian gagal dihapus:\n" + errors.join("\n"));
+
+  if (source === "viewer") {
+    previewList.splice(currentPreviewIdx, 1);
+    if (previewList.length === 0) {
+      closeViewer();
+    } else {
+      if (currentPreviewIdx >= previewList.length) currentPreviewIdx = previewList.length - 1;
+      renderViewerMedia();
+    }
+    const listData = await apiFetch("action=list&dev=" + encodeURIComponent(activeDev) + "&path=" + encodeURIComponent(currentPath));
+    if (listData && listData.ok) {
+      currentItems = listData.items || [];
+      renderFM();
+    }
+  } else {
+    exitSelectionMode();
+    loadFolder(currentPath);
+  }
+}
+
+showPinScreen();
+</script>
+</body>
+</html>

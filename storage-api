@@ -1,0 +1,278 @@
+#!/bin/sh
+
+APP_PIN="123456"
+
+urldecode() {
+  printf '%b' "$(printf '%s' "$1" | sed 's/%\([0-9a-fA-F][0-9a-fA-F]\)/\\x\1/g')"
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+}
+
+get_param() {
+  printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1
+}
+
+ACTION=$(get_param "action")
+DEV=$(get_param "dev")
+RAW_PATH=$(get_param "path")
+REL_PATH=$(urldecode "$RAW_PATH")
+DOWNLOAD=$(get_param "download")
+PIN_INPUT=$(urldecode "$(get_param "pin")")
+
+# === LOGIN PIN ===
+if [ "$ACTION" = "login" ]; then
+  printf "Content-Type: application/json\r\n\r\n"
+  if [ "$PIN_INPUT" = "$APP_PIN" ]; then
+    printf '{"ok":true}'
+  else
+    printf '{"ok":false,"msg":"PIN salah. Silakan coba lagi."}'
+  fi
+  exit 0
+fi
+
+# === WAJIB CEK PIN ===
+if [ "$PIN_INPUT" != "$APP_PIN" ]; then
+  printf "Status: 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n"
+  printf '{"ok":false,"auth":false,"msg":"Terkunci. Masukkan PIN terlebih dahulu."}'
+  exit 0
+fi
+
+validate_dev() {
+  case "$1" in
+    sd[a-z][0-9]|sd[a-z][0-9][0-9]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+get_mountpoint() {
+  awk -v d="/dev/$1" '$1==d {print $2; exit}' /proc/mounts
+}
+
+# === TAMPILKAN / DOWNLOAD FILE ===
+if [ "$ACTION" = "file" ]; then
+  if ! validate_dev "$DEV"; then
+    printf "Status: 400 Bad Request\r\n\r\nInvalid device"
+    exit 0
+  fi
+  case "$REL_PATH" in
+    *..*) printf "Status: 403 Forbidden\r\n\r\nForbidden"; exit 0 ;;
+  esac
+  MNT=$(get_mountpoint "$DEV")
+  TARGET="$MNT/$REL_PATH"
+  if [ -z "$MNT" ] || [ ! -f "$TARGET" ]; then
+    printf "Status: 404 Not Found\r\n\r\nFile tidak ditemukan"
+    exit 0
+  fi
+
+  EXT=$(printf '%s' "${TARGET##*.}" | tr 'A-Z' 'a-z')
+  case "$EXT" in
+    jpg|jpeg) MIME="image/jpeg" ;;
+    png) MIME="image/png" ;;
+    gif) MIME="image/gif" ;;
+    webp) MIME="image/webp" ;;
+    svg) MIME="image/svg+xml" ;;
+    mp4|m4v) MIME="video/mp4" ;;
+    webm) MIME="video/webm" ;;
+    mkv) MIME="video/x-matroska" ;;
+    mov) MIME="video/quicktime" ;;
+    mp3) MIME="audio/mpeg" ;;
+    wav) MIME="audio/wav" ;;
+    pdf) MIME="application/pdf" ;;
+    txt|log|csv) MIME="text/plain; charset=utf-8" ;;
+    *) MIME="application/octet-stream" ;;
+  esac
+
+  SIZE=$(ls -ldn "$TARGET" | awk '{print $5}')
+  FNAME=$(basename "$TARGET")
+  printf "Content-Type: %s\r\n" "$MIME"
+  printf "Content-Length: %s\r\n" "$SIZE"
+  if [ "$DOWNLOAD" = "1" ]; then
+    printf 'Content-Disposition: attachment; filename="%s"\r\n' "$FNAME"
+  fi
+  printf "\r\n"
+  cat "$TARGET"
+  exit 0
+fi
+
+# === RESPONSE JSON ===
+printf "Content-Type: application/json\r\n\r\n"
+
+if [ "$ACTION" = "scan" ]; then
+  LAST_MNT=$(awk '$1 ~ /^\/dev\/sd[a-z][0-9]+$/ {d=$1} END {sub(/^\/dev\//,"",d); print d}' /proc/mounts)
+  printf '{"ok":true,"lastMounted":"%s","partitions":[' "$LAST_MNT"
+  FIRST=1
+  for devpath in /dev/sd[a-z][0-9]*; do
+    [ -b "$devpath" ] || continue
+    dname=$(basename "$devpath")
+    info=$(blkid "$devpath" 2>/dev/null)
+
+    label=$(printf ' %s' "$info" | sed -n 's/.* LABEL="\([^"]*\)".*/\1/p')
+    fstype=$(printf ' %s' "$info" | sed -n 's/.* TYPE="\([^"]*\)".*/\1/p')
+
+    if [ -z "$label" ]; then
+      parent_disk=$(printf '%s' "$dname" | sed 's/[0-9]*$//')
+      if [ -f "/sys/block/$parent_disk/device/model" ]; then
+        model=$(cat "/sys/block/$parent_disk/device/model" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//')
+        [ -n "$model" ] && label="$model"
+      fi
+    fi
+    [ -z "$label" ] && label="Hardisk USB ($dname)"
+    [ -z "$fstype" ] && fstype="UNKNOWN"
+
+    mnt=$(get_mountpoint "$dname")
+    mounted="false"
+    total_kb=0
+    used_kb=0
+
+    if [ -n "$mnt" ]; then
+      mounted="true"
+      df_out=$(df -Pk "$mnt" 2>/dev/null | awk 'NR==2 {print $2, $3}')
+      total_kb=$(printf '%s' "$df_out" | awk '{print $1}')
+      used_kb=$(printf '%s' "$df_out" | awk '{print $2}')
+    else
+      if [ -f "/sys/class/block/$dname/size" ]; then
+        sectors=$(cat "/sys/class/block/$dname/size")
+        total_kb=$((sectors / 2))
+      fi
+    fi
+
+    [ -z "$total_kb" ] && total_kb=0
+    [ -z "$used_kb" ] && used_kb=0
+
+    [ "$FIRST" = "0" ] && printf ','
+    FIRST=0
+    printf '{"dev":"%s","path":"%s","label":"%s","fs":"%s","mounted":%s,"mountpoint":"%s","totalKB":%s,"usedKB":%s}' \
+      "$dname" "$devpath" "$(json_escape "$label")" "$(json_escape "$fstype")" "$mounted" "$(json_escape "$mnt")" "$total_kb" "$used_kb"
+  done
+  printf ']}'
+  exit 0
+fi
+
+if [ "$ACTION" = "mount" ]; then
+  if ! validate_dev "$DEV"; then
+    printf '{"ok":false,"msg":"Perangkat tidak valid"}'
+    exit 0
+  fi
+  if [ -n "$(get_mountpoint "$DEV")" ]; then
+    printf '{"ok":true,"msg":"Partisi sudah ter-mount"}'
+    exit 0
+  fi
+
+  MNT="/mnt/usb_$DEV"
+  mkdir -p "$MNT"
+  FSTYPE=$(printf ' %s' "$(blkid "/dev/$DEV" 2>/dev/null)" | sed -n 's/.* TYPE="\([^"]*\)".*/\1/p')
+
+  ERR=""
+  if [ "$FSTYPE" = "ntfs" ]; then
+    if command -v ntfs-3g >/dev/null 2>&1; then
+      ERR=$(ntfs-3g "/dev/$DEV" "$MNT" 2>&1)
+    else
+      ERR=$(mount -t ntfs3 "/dev/$DEV" "$MNT" 2>&1 || mount "/dev/$DEV" "$MNT" 2>&1)
+    fi
+  else
+    ERR=$(mount "/dev/$DEV" "$MNT" 2>&1)
+  fi
+
+  if [ -n "$(get_mountpoint "$DEV")" ]; then
+    printf '{"ok":true,"msg":"Berhasil di-mount ke %s"}' "$MNT"
+  else
+    printf '{"ok":false,"msg":"Gagal mount (%s): %s"}' "$FSTYPE" "$(json_escape "$ERR")"
+  fi
+  exit 0
+fi
+
+if [ "$ACTION" = "unmount" ]; then
+  if ! validate_dev "$DEV"; then
+    printf '{"ok":false,"msg":"Perangkat tidak valid"}'
+    exit 0
+  fi
+  MNT=$(get_mountpoint "$DEV")
+  if [ -z "$MNT" ]; then
+    printf '{"ok":true,"msg":"Partisi sudah terlepas"}'
+    exit 0
+  fi
+  sync
+  ERR=$(umount "$MNT" 2>&1 || (sleep 1; sync; umount "$MNT" 2>&1))
+  if [ $? -eq 0 ]; then
+    rmdir "$MNT" 2>/dev/null
+    printf '{"ok":true,"msg":"Hardisk berhasil dilepas dengan aman"}'
+  else
+    printf '{"ok":false,"msg":"Tidak bisa eject, kemungkinan ada file yang sedang dibuka (%s)"}' "$(json_escape "$ERR")"
+  fi
+  exit 0
+fi
+
+if [ "$ACTION" = "list" ]; then
+  if ! validate_dev "$DEV"; then
+    printf '{"ok":false,"msg":"Perangkat tidak valid"}'
+    exit 0
+  fi
+  case "$REL_PATH" in
+    *..*) printf '{"ok":false,"msg":"Akses ditolak"}'; exit 0 ;;
+  esac
+  MNT=$(get_mountpoint "$DEV")
+  if [ -z "$MNT" ]; then
+    printf '{"ok":false,"msg":"Partisi belum di-mount"}'
+    exit 0
+  fi
+
+  TARGET="$MNT"
+  [ -n "$REL_PATH" ] && TARGET="$MNT/$REL_PATH"
+  if [ ! -d "$TARGET" ]; then
+    printf '{"ok":false,"msg":"Folder tidak ditemukan"}'
+    exit 0
+  fi
+
+  printf '{"ok":true,"items":['
+  FIRST=1
+  for item in "$TARGET"/*; do
+    [ -e "$item" ] || continue
+    name=$(basename "$item")
+    [ "$name" = "System Volume Information" ] && continue
+    [ "$name" = "\$RECYCLE.BIN" ] && continue
+
+    if [ -d "$item" ]; then
+      isdir="true"
+      size=0
+    else
+      isdir="false"
+      size=$(ls -ldn "$item" | awk '{print $5}')
+      [ -z "$size" ] && size=0
+    fi
+
+    [ "$FIRST" = "0" ] && printf ','
+    FIRST=0
+    printf '{"name":"%s","isDir":%s,"size":%s}' "$(json_escape "$name")" "$isdir" "$size"
+  done
+  printf ']}'
+  exit 0
+fi
+
+# === HAPUS FILE ATAU FOLDER ===
+if [ "$ACTION" = "delete" ]; then
+  if ! validate_dev "$DEV"; then
+    printf '{"ok":false,"msg":"Perangkat tidak valid"}'
+    exit 0
+  fi
+  case "$REL_PATH" in
+    ""|"/"|*..*) printf '{"ok":false,"msg":"Path tidak valid"}'; exit 0 ;;
+  esac
+  MNT=$(get_mountpoint "$DEV")
+  TARGET="$MNT/$REL_PATH"
+  if [ -z "$MNT" ] || [ ! -e "$TARGET" ] || [ "$TARGET" = "$MNT" ] || [ "$TARGET" = "$MNT/" ]; then
+    printf '{"ok":false,"msg":"File atau folder tidak ditemukan"}'
+    exit 0
+  fi
+
+  ERR=$(rm -rf "$TARGET" 2>&1)
+  if [ $? -eq 0 ]; then
+    printf '{"ok":true,"msg":"Berhasil dihapus"}'
+  else
+    printf '{"ok":false,"msg":"Gagal menghapus: %s"}' "$(json_escape "$ERR")"
+  fi
+  exit 0
+fi
+
+printf '{"ok":false,"msg":"Aksi tidak dikenal"}'
